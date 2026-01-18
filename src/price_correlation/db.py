@@ -430,20 +430,20 @@ def export_to_timescaledb(
 
     try:
         # Export clusters
-        print(f"    Exporting {len(tickers)} cluster assignments...")
+        print(f"    Exporting {len(tickers)} cluster assignments...", flush=True)
         clusters_count = client.export_clusters(labels, tickers, analysis_date)
-        print(f"    Clusters exported: {clusters_count}")
+        print(f"    Clusters exported: {clusters_count}", flush=True)
 
         # Export correlations
         n_pairs = len(tickers) * (len(tickers) - 1) // 2
-        print(f"    Scanning {n_pairs} pairs for correlations >= {correlation_threshold}...")
+        print(f"    Scanning {n_pairs} pairs for correlations >= {correlation_threshold}...", flush=True)
         corr_count = client.export_correlations(
             corr_matrix, tickers, correlation_threshold, analysis_date
         )
-        print(f"    Correlations exported: {corr_count}")
+        print(f"    Correlations exported: {corr_count}", flush=True)
 
         # Export run metadata
-        print("    Saving run metadata...")
+        print("    Saving run metadata...", flush=True)
         client.export_run_metadata(
             n_stocks_processed=len(tickers),
             n_clusters=n_clusters,
