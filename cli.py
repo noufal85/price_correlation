@@ -10,12 +10,16 @@ Usage:
     python cli.py --help           # Show help
 
 Environment:
-    FMP_API_KEY - Required for FMP data source
+    FMP_API_KEY - Required for FMP data source (can be set in .env file)
 """
 
 import json
 import logging
 import os
+
+# Load environment variables from .env file
+from dotenv import load_dotenv
+load_dotenv()
 import pickle
 import sys
 import time

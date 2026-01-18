@@ -1,3 +1,8 @@
+# Environment variables (contains secrets)
+.env
+.env.local
+.env.*.local
+
 # Python
 __pycache__/
 *.py[cod]
@@ -33,25 +38,20 @@ env/
 *.swo
 *~
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
+# Pipeline state (can be regenerated)
+.pipeline_state/
 
-# Output files
+# Output files (can be regenerated)
 output/
-*.parquet
-*.json
-!package.json
+
+# OS files
+.DS_Store
+Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Secrets
-.env
-*.key
-credentials.json
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
