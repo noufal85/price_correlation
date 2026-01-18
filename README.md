@@ -220,22 +220,45 @@ result = run_sample_pipeline()
 
 ## Output
 
-After running the pipeline, find results in the output directory:
+After running the pipeline, find results in the output directory. Export formats (JSON/Parquet) are configurable via Settings menu (options 9 and A).
 
-| File | Description |
-|------|-------------|
-| `stock_clusters.json` | Human-readable cluster assignments |
-| `equity_clusters.parquet` | Database-ready format with metadata |
-| `pair_correlations.parquet` | Highly correlated pairs (>0.7) |
-| `cluster_visualization.png` | t-SNE 2D visualization |
+### Output Files
 
-### JSON Format
+| File | Format | Description |
+|------|--------|-------------|
+| `stock_clusters.json` | JSON | Clusters grouped by cluster ID with member lists |
+| `equity_clusters.json` | JSON | Per-ticker cluster assignments |
+| `pair_correlations.json` | JSON | Highly correlated pairs (>0.7) |
+| `equity_clusters.parquet` | Parquet | Database-ready cluster assignments |
+| `pair_correlations.parquet` | Parquet | Correlated pairs for DuckDB/analytics |
+| `cluster_visualization.png` | PNG | t-SNE 2D visualization |
 
+### JSON Formats
+
+**stock_clusters.json** - Grouped by cluster:
 ```json
 [
   {"cluster": 0, "members": ["AAPL", "MSFT", "GOOGL", ...], "size": 15},
   {"cluster": 1, "members": ["JPM", "BAC", "GS", ...], "size": 12},
   {"cluster": -1, "members": ["ODDSTOCK", ...], "size": 3}
+]
+```
+
+**equity_clusters.json** - Per-ticker assignments:
+```json
+[
+  {"ticker": "AAPL", "cluster_id": 0, "analysis_date": "2024-01-15"},
+  {"ticker": "MSFT", "cluster_id": 0, "analysis_date": "2024-01-15"},
+  {"ticker": "JPM", "cluster_id": 1, "analysis_date": "2024-01-15"}
+]
+```
+
+**pair_correlations.json** - Correlated pairs:
+```json
+[
+  {"ticker_a": "GOOGL", "ticker_b": "META", "correlation": 0.89},
+  {"ticker_a": "JPM", "ticker_b": "BAC", "correlation": 0.85},
+  {"ticker_a": "XOM", "ticker_b": "CVX", "correlation": 0.82}
 ]
 ```
 

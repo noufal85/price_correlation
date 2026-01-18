@@ -218,6 +218,8 @@ class Config:
         self.tickers = None
         self.correlation_threshold = 0.7
         self.visualize = True
+        self.export_json = True  # Export JSON format
+        self.export_parquet = True  # Export Parquet format
 
 
 # ============================================================================
@@ -776,17 +778,27 @@ def step_export(config: Config, state: PipelineState) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print_stat("Output directory", str(output_dir.absolute()))
+    print_stat("Export JSON", "Yes" if config.export_json else "No")
+    print_stat("Export Parquet", "Yes" if config.export_parquet else "No")
 
     # Export clusters
     print_subheader("Exporting Files")
     print()
-    print(c("  Writing JSON cluster file...", Colors.DIM), flush=True)
-    print(c("  Writing Parquet cluster file...", Colors.DIM), flush=True)
-    print(c("  Writing correlated pairs file...", Colors.DIM), flush=True)
+
+    if config.export_json:
+        print(c("  Writing stock_clusters.json...", Colors.DIM), flush=True)
+        print(c("  Writing equity_clusters.json...", Colors.DIM), flush=True)
+        print(c("  Writing pair_correlations.json...", Colors.DIM), flush=True)
+
+    if config.export_parquet:
+        print(c("  Writing equity_clusters.parquet...", Colors.DIM), flush=True)
+        print(c("  Writing pair_correlations.parquet...", Colors.DIM), flush=True)
 
     output_files = export_all(
         labels, valid_tickers, corr_matrix, output_dir,
-        correlation_threshold=config.correlation_threshold
+        correlation_threshold=config.correlation_threshold,
+        export_json=config.export_json,
+        export_parquet=config.export_parquet,
     )
 
     print()
@@ -978,6 +990,10 @@ def print_settings_menu(config: Config) -> None:
         print(f"    {c('7', Colors.YELLOW)}  Market Cap Min     [{c(mcap, Colors.GREEN)}]")
         print(f"    {c('8', Colors.YELLOW)}  Config File        [{c(config.config_file or 'default', Colors.GREEN)}]")
     print()
+    print(c("  Export Options:", Colors.DIM))
+    print(f"    {c('9', Colors.YELLOW)}  Export JSON        [{c('Yes' if config.export_json else 'No', Colors.GREEN)}]")
+    print(f"    {c('A', Colors.YELLOW)}  Export Parquet     [{c('Yes' if config.export_parquet else 'No', Colors.GREEN)}]")
+    print()
     print(f"    {c('0', Colors.YELLOW)}  Back to main menu")
     print()
 
@@ -1111,6 +1127,14 @@ def handle_settings(config: Config) -> None:
                         print_success(f"Config file set to {cfg_path}")
                     else:
                         print_error(f"File not found: {new_val}")
+        elif choice == "9":
+            config.export_json = not config.export_json
+            status = "enabled" if config.export_json else "disabled"
+            print_success(f"JSON export {status}")
+        elif choice.upper() == "A":
+            config.export_parquet = not config.export_parquet
+            status = "enabled" if config.export_parquet else "disabled"
+            print_success(f"Parquet export {status}")
 
 
 def interactive_menu():
