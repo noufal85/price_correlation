@@ -173,9 +173,16 @@ def compute_correlation(df: pd.DataFrame) -> np.ndarray:
 ```
 price_correlation/
 ├── CLAUDE.md              # This file
-├── DESIGN.md              # Architecture & pseudo-code
 ├── README.md              # User documentation
 ├── pyproject.toml         # Package config
+├── docs/
+│   ├── DESIGN.md          # Architecture & pseudo-code
+│   └── tasks/             # Individual task files
+│       ├── 00_OVERVIEW.md
+│       ├── 01_package_structure.md
+│       ├── 02_dependencies.md
+│       ├── ... (11 task files)
+│       └── 11_tests.md
 ├── src/
 │   └── price_correlation/
 │       ├── __init__.py
