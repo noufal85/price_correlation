@@ -27,6 +27,7 @@
 | 10 | Pipeline Orchestrator | `10_pipeline.md` | Output | ✅ |
 | 11 | Integration Tests | `11_tests.md` | Testing | ✅ |
 | 12 | FMP Universe Builder | `12_fmp_universe.md` | Data | ✅ |
+| 13 | Unified CLI | `13_unified_cli.md` | Interface | ✅ |
 
 ## Dependency Graph
 
