@@ -1,0 +1,61 @@
+# Sample Configuration - Filtered Universe
+# This demonstrates various filtering options
+
+# API Configuration
+api:
+  key: null  # Uses FMP_API_KEY environment variable
+  base_url: "https://financialmodelingprep.com/api/v3"
+  rate_limit_rpm: 300
+  request_delay: 0.25
+  price_batch_size: 5
+
+# Universe Filters
+filters:
+  # Market cap filter - Large and Mid cap only ($2B+)
+  market_cap:
+    min: 2000000000        # $2 billion minimum
+    max: null              # No maximum
+
+  # Volume filter - Liquid stocks only
+  volume:
+    min: 500000            # 500K average daily volume
+    max: null
+
+  # Exchanges
+  exchanges:
+    - NYSE
+    - NASDAQ
+
+  is_actively_trading: true
+
+  # Sector filter - Tech and Healthcare only
+  sectors:
+    - Technology
+    - Healthcare
+
+  # Industry filter (optional, more specific than sector)
+  # industries:
+  #   - "Software - Application"
+  #   - "Biotechnology"
+
+  country: "US"
+  type: null
+
+# Price Data Configuration
+price_data:
+  days: 180
+  use_adjusted: true
+
+# Pipeline Configuration
+pipeline:
+  clustering_method: "hierarchical"
+  min_history_pct: 0.90
+  remove_market_factor: true    # Remove beta for sector analysis
+  correlation_threshold: 0.7
+  visualize: true
+
+output:
+  dir: "./output"
+  formats:
+    - json
+    - parquet

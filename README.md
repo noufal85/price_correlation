@@ -4,12 +4,12 @@ Identify groups of correlated stocks across NYSE/NASDAQ using ML clustering algo
 
 ## Features
 
-- Fetch historical prices for S&P 500, NASDAQ-100, or custom tickers
-- Compute pairwise correlation matrices
-- Cluster stocks using DBSCAN or Hierarchical clustering
-- Auto-tune clustering parameters (epsilon, k)
-- Export results to JSON and Parquet formats
-- Generate t-SNE visualizations
+- **Full Stock Universe**: Fetch ALL NYSE/NASDAQ stocks via FMP API with configurable filters
+- **Flexible Filtering**: Filter by market cap, volume, sector, industry, exchange
+- **Multiple Data Sources**: FMP API (full universe) or yfinance (quick samples)
+- **ML Clustering**: DBSCAN and Hierarchical clustering with auto-tuning
+- **Export Formats**: JSON and Parquet with DuckDB-ready schemas
+- **Visualizations**: t-SNE 2D cluster plots
 
 ## Quick Start
 
@@ -26,10 +26,48 @@ source venv/bin/activate        # macOS/Linux
 # Install dependencies
 pip install -e ".[dev,full]"
 
-# Run with sample data (50 stocks, 6 months)
+# Quick test with sample data (yfinance)
 python run.py
 
-# Run with full universe (S&P 500 + NASDAQ-100)
+# --- OR ---
+
+# Full universe with FMP (requires API key)
+export FMP_API_KEY=your_key_here    # Get free key at financialmodelingprep.com
+python run_fmp.py
+```
+
+## Data Sources
+
+### Option 1: FMP API (Recommended for Full Universe)
+
+Uses [Financial Modeling Prep](https://financialmodelingprep.com) API to fetch the complete stock universe with filters.
+
+```bash
+# Get your free API key
+# https://financialmodelingprep.com/developer
+
+# Set API key
+export FMP_API_KEY=your_key_here
+
+# Run with full universe
+python run_fmp.py
+
+# Run with market cap filter ($1B+ stocks)
+python run_fmp.py --market-cap-min 1000000000
+
+# Use custom config
+python run_fmp.py --config config/sample_filtered.yaml
+```
+
+### Option 2: yfinance (Quick Testing)
+
+Uses yfinance for smaller samples (S&P 500, NASDAQ-100).
+
+```bash
+# Sample run (50 stocks)
+python run.py
+
+# Full S&P 500 + NASDAQ-100
 python run.py --full
 ```
 
@@ -180,16 +218,22 @@ pytest tests/test_integration.py::TestFullPipeline -v
 
 ```
 price_correlation/
-├── run.py                 # CLI runner with detailed logging
+├── run.py                 # CLI runner (yfinance)
+├── run_fmp.py             # CLI runner (FMP full universe)
 ├── pyproject.toml         # Package configuration
 ├── README.md              # This file
 ├── CLAUDE.md              # Development instructions
+├── config/
+│   ├── default.yaml       # Default config (full universe)
+│   ├── sample_filtered.yaml  # Large cap + sectors example
+│   └── sample_smallcap.yaml  # Small cap example
 ├── docs/
 │   ├── DESIGN.md          # System architecture
 │   └── tasks/             # Task breakdown
 ├── src/price_correlation/
-│   ├── universe.py        # Fetch ticker lists
-│   ├── ingestion.py       # Price data fetching
+│   ├── fmp_client.py      # FMP API client
+│   ├── universe.py        # Ticker list fetching
+│   ├── ingestion.py       # Price data (yfinance)
 │   ├── preprocess.py      # Returns, normalization
 │   ├── correlation.py     # Correlation matrices
 │   ├── clustering.py      # DBSCAN, hierarchical
@@ -200,6 +244,47 @@ price_correlation/
 │   └── test_integration.py
 └── output/                # Generated results
 ```
+
+## FMP Configuration
+
+Create or modify YAML config files in `config/` directory.
+
+### Filter Options
+
+```yaml
+filters:
+  # Market cap (USD)
+  market_cap:
+    min: 1000000000      # $1B minimum
+    max: null            # No maximum
+
+  # Average daily volume
+  volume:
+    min: 100000          # 100K minimum
+    max: null
+
+  # Exchanges
+  exchanges:
+    - NYSE
+    - NASDAQ
+
+  # Sectors (null = all)
+  sectors:
+    - Technology
+    - Healthcare
+    - Financial Services
+
+  # Only active stocks
+  is_actively_trading: true
+```
+
+### Example Configs
+
+| Config | Description |
+|--------|-------------|
+| `default.yaml` | Full universe, no filters |
+| `sample_filtered.yaml` | Large cap ($2B+), Tech & Healthcare |
+| `sample_smallcap.yaml` | Small cap ($300M-$2B) |
 
 ## Configuration Options
 

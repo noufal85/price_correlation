@@ -1,0 +1,89 @@
+# Default Configuration - Full Stock Universe
+# This fetches ALL actively traded US stocks from NYSE and NASDAQ
+
+# API Configuration
+api:
+  # FMP API key - set via environment variable FMP_API_KEY
+  # Get your free key at: https://financialmodelingprep.com/developer
+  key: null  # Will use FMP_API_KEY environment variable
+
+  base_url: "https://financialmodelingprep.com/api/v3"
+
+  # Rate limiting (requests per minute)
+  # Free tier: ~5 req/min, Starter: 300 req/min
+  rate_limit_rpm: 300
+
+  # Delay between requests (seconds)
+  request_delay: 0.25
+
+  # Batch size for price requests (max symbols per request)
+  price_batch_size: 5
+
+# Universe Filters
+# Set to null or remove to disable filter
+filters:
+  # Market cap filter (USD)
+  market_cap:
+    min: null              # No minimum - include all
+    max: null              # No maximum
+
+  # Average volume filter
+  volume:
+    min: null              # No minimum - include all
+    max: null
+
+  # Exchanges to include
+  exchanges:
+    - NYSE
+    - NASDAQ
+
+  # Only actively trading stocks
+  is_actively_trading: true
+
+  # Sectors (null = all sectors)
+  sectors: null
+
+  # Industries (null = all industries)
+  industries: null
+
+  # Country
+  country: "US"
+
+  # Stock type (null = all)
+  # Options: stock, etf, trust, adr
+  type: null
+
+# Price Data Configuration
+price_data:
+  # Number of days of historical data
+  days: 180
+
+  # Use adjusted close prices (recommended)
+  use_adjusted: true
+
+# Pipeline Configuration
+pipeline:
+  # Clustering method: "hierarchical" or "dbscan"
+  clustering_method: "hierarchical"
+
+  # Minimum data history percentage (filter sparse tickers)
+  min_history_pct: 0.85
+
+  # Remove market factor via PCA
+  remove_market_factor: false
+
+  # Correlation threshold for pair export
+  correlation_threshold: 0.7
+
+  # Generate visualization
+  visualize: true
+
+# Output Configuration
+output:
+  # Output directory
+  dir: "./output"
+
+  # Export formats
+  formats:
+    - json
+    - parquet

@@ -1,0 +1,47 @@
+# Sample Configuration - Small Cap Stocks
+# Focus on small cap stocks ($300M - $2B market cap)
+
+api:
+  key: null
+  base_url: "https://financialmodelingprep.com/api/v3"
+  rate_limit_rpm: 300
+  request_delay: 0.25
+  price_batch_size: 5
+
+filters:
+  # Small cap range
+  market_cap:
+    min: 300000000         # $300 million
+    max: 2000000000        # $2 billion
+
+  # Ensure some liquidity
+  volume:
+    min: 100000            # 100K average volume
+    max: null
+
+  exchanges:
+    - NYSE
+    - NASDAQ
+
+  is_actively_trading: true
+  sectors: null            # All sectors
+  industries: null
+  country: "US"
+  type: null
+
+price_data:
+  days: 180
+  use_adjusted: true
+
+pipeline:
+  clustering_method: "dbscan"  # Better for noisy small caps
+  min_history_pct: 0.85
+  remove_market_factor: false
+  correlation_threshold: 0.6   # Lower threshold for small caps
+  visualize: true
+
+output:
+  dir: "./output"
+  formats:
+    - json
+    - parquet

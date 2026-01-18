@@ -26,6 +26,7 @@
 | 09 | Export Module | `09_export.md` | Output | ✅ |
 | 10 | Pipeline Orchestrator | `10_pipeline.md` | Output | ✅ |
 | 11 | Integration Tests | `11_tests.md` | Testing | ✅ |
+| 12 | FMP Universe Builder | `12_fmp_universe.md` | Data | ✅ |
 
 ## Dependency Graph
 
