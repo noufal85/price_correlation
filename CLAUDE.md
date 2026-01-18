@@ -227,11 +227,34 @@ Optional:
 
 ---
 
+## Setup & Installation
+
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate        # macOS/Linux
+# venv\Scripts\activate         # Windows
+
+# Install package with dev dependencies
+pip install -e ".[dev]"
+
+# Install with all optional dependencies (visualization, etc.)
+pip install -e ".[dev,full]"
+```
+
 ## Common Commands
 
 ```bash
-# Install in dev mode
-pip install -e ".[dev]"
+# IMPORTANT: Always activate venv first
+source venv/bin/activate
+
+# Run the pipeline (sample data)
+python run.py
+
+# Run with full universe
+python run.py --full
 
 # Run tests (real data, may take time)
 pytest tests/ -v
@@ -244,6 +267,9 @@ ruff format src/ tests/
 
 # Lint
 ruff check src/ tests/
+
+# Deactivate when done
+deactivate
 ```
 
 ---
