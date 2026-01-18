@@ -26,77 +26,81 @@ source venv/bin/activate        # macOS/Linux
 # Install dependencies
 pip install -e ".[dev,full]"
 
-# Quick test with sample data (50 stocks)
-python cli.py run
+# Launch interactive menu
+python cli.py
 
-# Full universe with FMP (requires API key)
+# For FMP data source, set API key first
 export FMP_API_KEY=your_key_here
-python cli.py run --source fmp
+python cli.py
 ```
 
 ## CLI Usage
 
-Single unified CLI for all operations with detailed logging.
+Interactive menu-based CLI for all operations with detailed logging and step-by-step execution.
 
-### Full Pipeline
+### Interactive Menu
 
-```bash
-# Quick test (50 stocks via yfinance)
-python cli.py run
+Simply run `python cli.py` to launch the interactive menu:
 
-# Full universe (all NYSE/NASDAQ via FMP)
-export FMP_API_KEY=your_key_here
-python cli.py run --source fmp
+```
+============================================================
+       STOCK CLUSTERING PIPELINE - INTERACTIVE MENU
+============================================================
 
-# Large cap only ($1B+)
-python cli.py run --source fmp --market-cap-min 1000000000
+  Current Settings:
+    Source:      YFINANCE
+    Mode:        Sample (50)
+    Days:        180
+    Method:      hierarchical
+    Output:      ./output
 
-# Use config file
-python cli.py run --source fmp --config config/sample_filtered.yaml
+────────────────────────────────────────────────────────────
 
-# DBSCAN instead of hierarchical
-python cli.py run --method dbscan
+  Pipeline Steps:
+
+    1  ○  Fetch Universe       - Get list of stocks to analyze
+    2  ○  Fetch Prices         - Download historical price data
+    3  ○  Preprocess           - Compute returns & normalize
+    4  ○  Correlations         - Build correlation matrix
+    5  ○  Cluster              - Run clustering algorithm
+    6     Export               - Save results to files
+
+────────────────────────────────────────────────────────────
+
+  Actions:
+
+    7     Run Full Pipeline    - Execute all steps (1-6)
+    8     Settings             - Change configuration
+    9     Clear State          - Reset pipeline state
+    0     Exit
+
+============================================================
+
+  Enter choice:
 ```
 
-### Step-by-Step Execution
+### Menu Options
 
-Run individual steps and inspect results between each:
+| Key | Action | Description |
+|-----|--------|-------------|
+| 1-6 | Pipeline Steps | Run individual steps sequentially |
+| 7 | Full Pipeline | Run all steps automatically |
+| 8 | Settings | Configure data source, method, etc. |
+| 9 | Clear State | Reset and start fresh |
+| 0 | Exit | Quit the program |
 
-```bash
-# Step 1: Fetch universe
-python cli.py universe --source fmp
+### Settings Menu
 
-# Step 2: Fetch prices
-python cli.py prices --days 180
+Press `8` to access settings where you can configure:
 
-# Step 3: Preprocess (compute returns)
-python cli.py preprocess
-
-# Step 4: Compute correlations
-python cli.py correlate
-
-# Step 5: Cluster
-python cli.py cluster --method hierarchical
-
-# Step 6: Export results
-python cli.py export
-```
-
-### CLI Options
-
-```bash
-python cli.py --help           # Show all commands
-python cli.py run --help       # Show run options
-
-# Common options
---source fmp|yfinance          # Data source (default: yfinance)
---config PATH                  # Config file for FMP filters
---output DIR                   # Output directory (default: ./output)
---days N                       # Days of price history (default: 180)
---method hierarchical|dbscan   # Clustering method
---market-cap-min N             # Min market cap in USD (FMP)
---market-cap-max N             # Max market cap in USD (FMP)
-```
+- **Data Source**: `yfinance` (quick test) or `fmp` (full universe)
+- **Days of History**: Price data lookback period (default: 180)
+- **Clustering Method**: `hierarchical` or `dbscan`
+- **Min History %**: Filter stocks with insufficient data
+- **Output Directory**: Where to save results
+- **Universe Mode** (yfinance): Full or Sample size
+- **Market Cap Min** (FMP): Filter by market capitalization
+- **Config File** (FMP): Use YAML config for advanced filters
 
 ## Installation
 

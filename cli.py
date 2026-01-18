@@ -2,22 +2,17 @@
 """
 Stock Clustering CLI
 
-Unified command-line interface for stock correlation clustering.
+Interactive menu-based command-line interface for stock correlation clustering.
 Run the full pipeline or execute individual steps.
 
 Usage:
-    python cli.py run                    # Full pipeline with defaults
-    python cli.py run --source fmp       # Use FMP data source
-    python cli.py universe               # Fetch universe only
-    python cli.py prices                 # Fetch prices only
-    python cli.py cluster                # Run clustering only
-    python cli.py --help                 # Show help
+    python cli.py                  # Launch interactive menu
+    python cli.py --help           # Show help
 
 Environment:
     FMP_API_KEY - Required for FMP data source
 """
 
-import argparse
 import json
 import logging
 import os
@@ -53,6 +48,7 @@ class Colors:
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
     END = '\033[0m'
+    DIM = '\033[2m'
 
 
 def supports_color():
@@ -145,6 +141,11 @@ def format_number(value: float) -> str:
         return f"${value:,.0f}"
 
 
+def clear_screen():
+    """Clear terminal screen."""
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+
 # ============================================================================
 # State Management
 # ============================================================================
@@ -178,17 +179,52 @@ class PipelineState:
         for f in self.work_dir.glob("*.pkl"):
             f.unlink()
 
+    def get_status(self) -> dict:
+        """Get status of each pipeline step."""
+        return {
+            "universe": self.exists("universe"),
+            "prices": self.exists("prices"),
+            "returns": self.exists("returns"),
+            "corr_matrix": self.exists("corr_matrix"),
+            "labels": self.exists("labels"),
+        }
+
+
+# ============================================================================
+# Configuration
+# ============================================================================
+
+class Config:
+    """Pipeline configuration."""
+
+    def __init__(self):
+        self.source = "yfinance"
+        self.config_file = None
+        self.output_dir = "./output"
+        self.work_dir = "./.pipeline_state"
+        self.days = 180
+        self.min_history = 0.85
+        self.method = "hierarchical"
+        self.n_clusters = None
+        self.market_cap_min = None
+        self.market_cap_max = None
+        self.sample_size = 50
+        self.full = False
+        self.tickers = None
+        self.correlation_threshold = 0.7
+        self.visualize = True
+
 
 # ============================================================================
 # Pipeline Steps
 # ============================================================================
 
-def step_universe(args, state: PipelineState) -> list[dict]:
+def step_universe(config: Config, state: PipelineState) -> list[dict]:
     """Step 1: Fetch stock universe."""
     print_header("STEP 1: FETCH STOCK UNIVERSE")
     step_start = time.time()
 
-    if args.source == "fmp":
+    if config.source == "fmp":
         from price_correlation.fmp_client import load_config, get_fmp_universe
 
         # Check API key
@@ -197,25 +233,25 @@ def step_universe(args, state: PipelineState) -> list[dict]:
             print_error("FMP_API_KEY environment variable not set!")
             print("  Get your free key at: https://financialmodelingprep.com/developer")
             print("  Then run: export FMP_API_KEY=your_key_here")
-            sys.exit(1)
+            return None
 
         # Load config
-        if args.config:
-            config = load_config(args.config)
-            print_stat("Config file", args.config)
+        if config.config_file:
+            fmp_config = load_config(config.config_file)
+            print_stat("Config file", config.config_file)
         else:
-            config = load_config()
+            fmp_config = load_config()
             print_stat("Config file", "default.yaml")
 
         # Override with CLI args
-        if args.market_cap_min:
-            config.setdefault("filters", {}).setdefault("market_cap", {})["min"] = args.market_cap_min
-        if args.market_cap_max:
-            config.setdefault("filters", {}).setdefault("market_cap", {})["max"] = args.market_cap_max
+        if config.market_cap_min:
+            fmp_config.setdefault("filters", {}).setdefault("market_cap", {})["min"] = config.market_cap_min
+        if config.market_cap_max:
+            fmp_config.setdefault("filters", {}).setdefault("market_cap", {})["max"] = config.market_cap_max
 
         # Show filters
         print_subheader("Active Filters")
-        filters = config.get("filters", {})
+        filters = fmp_config.get("filters", {})
 
         market_cap = filters.get("market_cap", {})
         if market_cap.get("min"):
@@ -233,7 +269,7 @@ def step_universe(args, state: PipelineState) -> list[dict]:
             print_stat("Sectors", "All")
 
         print_subheader("Fetching from FMP API")
-        universe = get_fmp_universe(config=config)
+        universe = get_fmp_universe(config=fmp_config)
 
     else:
         # yfinance source
@@ -241,17 +277,17 @@ def step_universe(args, state: PipelineState) -> list[dict]:
 
         print_stat("Data source", "yfinance")
 
-        if args.tickers:
-            tickers = args.tickers
+        if config.tickers:
+            tickers = config.tickers
             universe = [{"symbol": t} for t in tickers]
             print_stat("Mode", "Custom tickers")
-        elif args.full:
+        elif config.full:
             print_stat("Mode", "Full (S&P 500 + NASDAQ-100)")
             tickers = get_full_universe()
             universe = [{"symbol": t} for t in tickers]
         else:
-            print_stat("Mode", f"Sample ({args.sample_size} stocks)")
-            tickers = get_sample_tickers(args.sample_size)
+            print_stat("Mode", f"Sample ({config.sample_size} stocks)")
+            tickers = get_sample_tickers(config.sample_size)
             universe = [{"symbol": t} for t in tickers]
 
     # Stats
@@ -292,7 +328,7 @@ def step_universe(args, state: PipelineState) -> list[dict]:
     return universe
 
 
-def step_prices(args, state: PipelineState) -> pd.DataFrame:
+def step_prices(config: Config, state: PipelineState) -> pd.DataFrame:
     """Step 2: Fetch price data."""
     print_header("STEP 2: FETCH PRICE DATA")
     step_start = time.time()
@@ -300,17 +336,17 @@ def step_prices(args, state: PipelineState) -> pd.DataFrame:
     # Load universe
     tickers = state.load("tickers")
     if not tickers:
-        print_error("No universe found. Run 'universe' step first.")
-        sys.exit(1)
+        print_error("No universe found. Run step 1 first.")
+        return None
 
     print_stat("Tickers to fetch", len(tickers))
-    print_stat("Days of history", args.days)
+    print_stat("Days of history", config.days)
 
-    if args.source == "fmp":
+    if config.source == "fmp":
         from price_correlation.fmp_client import FMPClient, load_config
 
-        config = load_config(args.config) if args.config else load_config()
-        client = FMPClient(config=config)
+        fmp_config = load_config(config.config_file) if config.config_file else load_config()
+        client = FMPClient(config=fmp_config)
 
         print_subheader("Fetching from FMP API")
         estimated_time = len(tickers) * 0.3
@@ -319,14 +355,14 @@ def step_prices(args, state: PipelineState) -> pd.DataFrame:
 
         prices = client.get_batch_historical_prices(
             tickers,
-            days=args.days,
+            days=config.days,
             progress_callback=print_progress,
         )
     else:
         from price_correlation.ingestion import fetch_price_history
 
         print_subheader("Fetching from yfinance")
-        prices = fetch_price_history(tickers, period_months=args.days // 30)
+        prices = fetch_price_history(tickers, period_months=config.days // 30)
 
     # Stats
     print_subheader("Price Data Statistics")
@@ -352,7 +388,7 @@ def step_prices(args, state: PipelineState) -> pd.DataFrame:
     return prices
 
 
-def step_preprocess(args, state: PipelineState) -> pd.DataFrame:
+def step_preprocess(config: Config, state: PipelineState) -> pd.DataFrame:
     """Step 3: Preprocess data."""
     print_header("STEP 3: PREPROCESS DATA")
     step_start = time.time()
@@ -362,15 +398,15 @@ def step_preprocess(args, state: PipelineState) -> pd.DataFrame:
     # Load prices
     prices = state.load("prices")
     if prices is None:
-        print_error("No price data found. Run 'prices' step first.")
-        sys.exit(1)
+        print_error("No price data found. Run step 2 first.")
+        return None
 
     print_stat("Input tickers", len(prices.columns))
     print_stat("Input days", len(prices))
-    print_stat("Min history required", f"{args.min_history * 100:.0f}%")
+    print_stat("Min history required", f"{config.min_history * 100:.0f}%")
 
     print_subheader("Processing")
-    returns = preprocess_pipeline(prices, min_history_pct=args.min_history)
+    returns = preprocess_pipeline(prices, min_history_pct=config.min_history)
     valid_tickers = list(returns.columns)
 
     print_subheader("Preprocessing Results")
@@ -404,7 +440,7 @@ def step_preprocess(args, state: PipelineState) -> pd.DataFrame:
     return returns
 
 
-def step_correlate(args, state: PipelineState) -> tuple:
+def step_correlate(config: Config, state: PipelineState) -> tuple:
     """Step 4: Compute correlations."""
     print_header("STEP 4: COMPUTE CORRELATIONS")
     step_start = time.time()
@@ -418,8 +454,8 @@ def step_correlate(args, state: PipelineState) -> tuple:
     returns = state.load("returns")
     valid_tickers = state.load("valid_tickers")
     if returns is None:
-        print_error("No preprocessed data found. Run 'preprocess' step first.")
-        sys.exit(1)
+        print_error("No preprocessed data found. Run step 3 first.")
+        return None
 
     print_stat("Tickers", len(valid_tickers))
 
@@ -475,7 +511,7 @@ def step_correlate(args, state: PipelineState) -> tuple:
     return corr_matrix, dist_matrix, condensed_dist
 
 
-def step_cluster(args, state: PipelineState) -> np.ndarray:
+def step_cluster(config: Config, state: PipelineState) -> np.ndarray:
     """Step 5: Cluster stocks."""
     print_header("STEP 5: CLUSTER STOCKS")
     step_start = time.time()
@@ -492,14 +528,14 @@ def step_cluster(args, state: PipelineState) -> np.ndarray:
     valid_tickers = state.load("valid_tickers")
 
     if dist_matrix is None:
-        print_error("No correlation data found. Run 'correlate' step first.")
-        sys.exit(1)
+        print_error("No correlation data found. Run step 4 first.")
+        return None
 
     n = len(valid_tickers)
     print_stat("Stocks to cluster", n)
-    print_stat("Method", args.method)
+    print_stat("Method", config.method)
 
-    if args.method == "dbscan":
+    if config.method == "dbscan":
         print_subheader("DBSCAN Clustering")
         print("  Finding optimal epsilon...")
         eps = find_optimal_eps(dist_matrix)
@@ -514,8 +550,8 @@ def step_cluster(args, state: PipelineState) -> np.ndarray:
         print("  Building dendrogram...")
         Z = cluster_hierarchical(condensed_dist, method="average")
 
-        if args.n_clusters:
-            best_k = args.n_clusters
+        if config.n_clusters:
+            best_k = config.n_clusters
             print_stat("Clusters (specified)", best_k)
         else:
             print("  Finding optimal k...")
@@ -576,7 +612,7 @@ def step_cluster(args, state: PipelineState) -> np.ndarray:
     return labels
 
 
-def step_export(args, state: PipelineState) -> dict:
+def step_export(config: Config, state: PipelineState) -> dict:
     """Step 6: Export results."""
     print_header("STEP 6: EXPORT RESULTS")
     step_start = time.time()
@@ -592,10 +628,10 @@ def step_export(args, state: PipelineState) -> dict:
     universe = state.load("universe")
 
     if labels is None:
-        print_error("No clustering results found. Run 'cluster' step first.")
-        sys.exit(1)
+        print_error("No clustering results found. Run step 5 first.")
+        return None
 
-    output_dir = Path(args.output)
+    output_dir = Path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print_stat("Output directory", str(output_dir.absolute()))
@@ -604,7 +640,7 @@ def step_export(args, state: PipelineState) -> dict:
     print_subheader("Exporting Files")
     output_files = export_all(
         labels, valid_tickers, corr_matrix, output_dir,
-        correlation_threshold=args.correlation_threshold
+        correlation_threshold=config.correlation_threshold
     )
 
     for name, path in output_files.items():
@@ -625,7 +661,7 @@ def step_export(args, state: PipelineState) -> dict:
         print_success(f"universe_metadata: {universe_path}")
 
     # Visualization
-    if args.visualize:
+    if config.visualize:
         print_subheader("Generating Visualization")
         try:
             viz_path = output_dir / "cluster_visualization.png"
@@ -641,12 +677,12 @@ def step_export(args, state: PipelineState) -> dict:
     return output_files
 
 
-def run_full_pipeline(args, state: PipelineState) -> dict:
+def run_full_pipeline(config: Config, state: PipelineState) -> dict:
     """Run all pipeline steps."""
     print_header("STOCK CLUSTERING PIPELINE")
     print(f"  {c('Started:', Colors.BOLD)} {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"  {c('Source:', Colors.BOLD)}  {args.source}")
-    print(f"  {c('Output:', Colors.BOLD)}  {args.output}")
+    print(f"  {c('Source:', Colors.BOLD)}  {config.source}")
+    print(f"  {c('Output:', Colors.BOLD)}  {config.output_dir}")
 
     pipeline_start = time.time()
 
@@ -654,12 +690,27 @@ def run_full_pipeline(args, state: PipelineState) -> dict:
     state.clear()
 
     # Run all steps
-    step_universe(args, state)
-    step_prices(args, state)
-    step_preprocess(args, state)
-    step_correlate(args, state)
-    step_cluster(args, state)
-    step_export(args, state)
+    result = step_universe(config, state)
+    if result is None:
+        return None
+
+    result = step_prices(config, state)
+    if result is None:
+        return None
+
+    result = step_preprocess(config, state)
+    if result is None:
+        return None
+
+    result = step_correlate(config, state)
+    if result is None:
+        return None
+
+    result = step_cluster(config, state)
+    if result is None:
+        return None
+
+    step_export(config, state)
 
     # Summary
     total_time = time.time() - pipeline_start
@@ -694,143 +745,298 @@ def run_full_pipeline(args, state: PipelineState) -> dict:
 
 
 # ============================================================================
-# CLI
+# Interactive Menu
+# ============================================================================
+
+def print_menu(config: Config, state: PipelineState) -> None:
+    """Print the interactive menu."""
+    status = state.get_status()
+
+    print()
+    print(c("=" * 60, Colors.CYAN))
+    print(c("       STOCK CLUSTERING PIPELINE - INTERACTIVE MENU", Colors.BOLD + Colors.CYAN))
+    print(c("=" * 60, Colors.CYAN))
+    print()
+
+    # Current settings
+    print(c("  Current Settings:", Colors.BOLD))
+    print(f"    Source:      {c(config.source.upper(), Colors.GREEN)}")
+    if config.source == "fmp":
+        if config.market_cap_min:
+            print(f"    Market Cap:  {c(format_number(config.market_cap_min) + '+', Colors.GREEN)}")
+        if config.config_file:
+            print(f"    Config:      {c(config.config_file, Colors.GREEN)}")
+    else:
+        mode = "Full" if config.full else f"Sample ({config.sample_size})"
+        print(f"    Mode:        {c(mode, Colors.GREEN)}")
+    print(f"    Days:        {c(str(config.days), Colors.GREEN)}")
+    print(f"    Method:      {c(config.method, Colors.GREEN)}")
+    print(f"    Output:      {c(config.output_dir, Colors.GREEN)}")
+    print()
+
+    # Status indicators
+    def status_icon(done: bool) -> str:
+        return c("✓", Colors.GREEN) if done else c("○", Colors.DIM)
+
+    print(c("─" * 60, Colors.BLUE))
+    print()
+    print(c("  Pipeline Steps:", Colors.BOLD))
+    print()
+    print(f"    {c('1', Colors.YELLOW)}  {status_icon(status['universe'])}  Fetch Universe       - Get list of stocks to analyze")
+    print(f"    {c('2', Colors.YELLOW)}  {status_icon(status['prices'])}  Fetch Prices         - Download historical price data")
+    print(f"    {c('3', Colors.YELLOW)}  {status_icon(status['returns'])}  Preprocess           - Compute returns & normalize")
+    print(f"    {c('4', Colors.YELLOW)}  {status_icon(status['corr_matrix'])}  Correlations         - Build correlation matrix")
+    print(f"    {c('5', Colors.YELLOW)}  {status_icon(status['labels'])}  Cluster              - Run clustering algorithm")
+    print(f"    {c('6', Colors.YELLOW)}     Export               - Save results to files")
+    print()
+    print(c("─" * 60, Colors.BLUE))
+    print()
+    print(c("  Actions:", Colors.BOLD))
+    print()
+    print(f"    {c('7', Colors.YELLOW)}     Run Full Pipeline    - Execute all steps (1-6)")
+    print(f"    {c('8', Colors.YELLOW)}     Settings             - Change configuration")
+    print(f"    {c('9', Colors.YELLOW)}     Clear State          - Reset pipeline state")
+    print(f"    {c('0', Colors.YELLOW)}     Exit")
+    print()
+    print(c("=" * 60, Colors.CYAN))
+    print()
+
+
+def print_settings_menu(config: Config) -> None:
+    """Print the settings menu."""
+    print()
+    print(c("─" * 50, Colors.BLUE))
+    print(c("  Settings", Colors.BOLD + Colors.BLUE))
+    print(c("─" * 50, Colors.BLUE))
+    print()
+    print(f"    {c('1', Colors.YELLOW)}  Data Source        [{c(config.source, Colors.GREEN)}]")
+    print(f"    {c('2', Colors.YELLOW)}  Days of History    [{c(str(config.days), Colors.GREEN)}]")
+    print(f"    {c('3', Colors.YELLOW)}  Clustering Method  [{c(config.method, Colors.GREEN)}]")
+    print(f"    {c('4', Colors.YELLOW)}  Min History %      [{c(f'{config.min_history*100:.0f}%', Colors.GREEN)}]")
+    print(f"    {c('5', Colors.YELLOW)}  Output Directory   [{c(config.output_dir, Colors.GREEN)}]")
+    if config.source == "yfinance":
+        mode = "Full" if config.full else f"Sample ({config.sample_size})"
+        print(f"    {c('6', Colors.YELLOW)}  Universe Mode      [{c(mode, Colors.GREEN)}]")
+    else:
+        mcap = format_number(config.market_cap_min) if config.market_cap_min else "None"
+        print(f"    {c('6', Colors.YELLOW)}  Market Cap Min     [{c(mcap, Colors.GREEN)}]")
+        print(f"    {c('7', Colors.YELLOW)}  Config File        [{c(config.config_file or 'default', Colors.GREEN)}]")
+    print()
+    print(f"    {c('0', Colors.YELLOW)}  Back to main menu")
+    print()
+
+
+def handle_settings(config: Config) -> None:
+    """Handle settings menu."""
+    while True:
+        print_settings_menu(config)
+        choice = input(c("  Enter choice: ", Colors.BOLD)).strip()
+
+        if choice == "0":
+            break
+        elif choice == "1":
+            print()
+            print(f"    Current: {config.source}")
+            print("    Options: yfinance, fmp")
+            new_val = input("    New value: ").strip().lower()
+            if new_val in ["yfinance", "fmp"]:
+                config.source = new_val
+                print_success(f"Source set to {new_val}")
+            else:
+                print_error("Invalid choice")
+        elif choice == "2":
+            print()
+            print(f"    Current: {config.days}")
+            new_val = input("    New value (days): ").strip()
+            try:
+                config.days = int(new_val)
+                print_success(f"Days set to {config.days}")
+            except ValueError:
+                print_error("Invalid number")
+        elif choice == "3":
+            print()
+            print(f"    Current: {config.method}")
+            print("    Options: hierarchical, dbscan")
+            new_val = input("    New value: ").strip().lower()
+            if new_val in ["hierarchical", "dbscan"]:
+                config.method = new_val
+                print_success(f"Method set to {new_val}")
+            else:
+                print_error("Invalid choice")
+        elif choice == "4":
+            print()
+            print(f"    Current: {config.min_history*100:.0f}%")
+            new_val = input("    New value (0-100): ").strip()
+            try:
+                val = float(new_val) / 100
+                if 0 <= val <= 1:
+                    config.min_history = val
+                    print_success(f"Min history set to {val*100:.0f}%")
+                else:
+                    print_error("Value must be between 0 and 100")
+            except ValueError:
+                print_error("Invalid number")
+        elif choice == "5":
+            print()
+            print(f"    Current: {config.output_dir}")
+            new_val = input("    New value: ").strip()
+            if new_val:
+                config.output_dir = new_val
+                print_success(f"Output directory set to {new_val}")
+        elif choice == "6":
+            if config.source == "yfinance":
+                print()
+                print(f"    Current: {'Full' if config.full else f'Sample ({config.sample_size})'}")
+                print("    Options: full, sample")
+                new_val = input("    New value: ").strip().lower()
+                if new_val == "full":
+                    config.full = True
+                    print_success("Mode set to Full")
+                elif new_val == "sample":
+                    config.full = False
+                    size = input("    Sample size: ").strip()
+                    try:
+                        config.sample_size = int(size)
+                        print_success(f"Mode set to Sample ({config.sample_size})")
+                    except ValueError:
+                        print_error("Invalid number")
+                else:
+                    print_error("Invalid choice")
+            else:
+                print()
+                print(f"    Current: {format_number(config.market_cap_min) if config.market_cap_min else 'None'}")
+                new_val = input("    New value (USD, or 'none'): ").strip().lower()
+                if new_val == "none":
+                    config.market_cap_min = None
+                    print_success("Market cap min cleared")
+                else:
+                    try:
+                        # Support shorthand like 1B, 500M
+                        val = new_val.upper().replace("B", "000000000").replace("M", "000000").replace("K", "000")
+                        config.market_cap_min = int(val)
+                        print_success(f"Market cap min set to {format_number(config.market_cap_min)}")
+                    except ValueError:
+                        print_error("Invalid number (use format like 1000000000 or 1B)")
+        elif choice == "7" and config.source == "fmp":
+            print()
+            print(f"    Current: {config.config_file or 'default'}")
+            print("    Available: default.yaml, sample_filtered.yaml, sample_smallcap.yaml")
+            new_val = input("    Config file path (or 'default'): ").strip()
+            if new_val.lower() == "default":
+                config.config_file = None
+                print_success("Using default config")
+            elif new_val:
+                if os.path.exists(new_val):
+                    config.config_file = new_val
+                    print_success(f"Config file set to {new_val}")
+                else:
+                    # Try config directory
+                    cfg_path = f"config/{new_val}"
+                    if os.path.exists(cfg_path):
+                        config.config_file = cfg_path
+                        print_success(f"Config file set to {cfg_path}")
+                    else:
+                        print_error(f"File not found: {new_val}")
+
+
+def interactive_menu():
+    """Run interactive menu loop."""
+    config = Config()
+    state = PipelineState(Path(config.work_dir))
+
+    print()
+    print(c("  Stock Clustering Pipeline v1.0", Colors.BOLD + Colors.GREEN))
+    print(c("  Type a number and press Enter to select an option", Colors.DIM))
+
+    while True:
+        try:
+            print_menu(config, state)
+            choice = input(c("  Enter choice: ", Colors.BOLD)).strip()
+
+            if choice == "0":
+                print()
+                print(c("  Goodbye!", Colors.GREEN))
+                print()
+                break
+            elif choice == "1":
+                step_universe(config, state)
+                input(c("\n  Press Enter to continue...", Colors.DIM))
+            elif choice == "2":
+                step_prices(config, state)
+                input(c("\n  Press Enter to continue...", Colors.DIM))
+            elif choice == "3":
+                step_preprocess(config, state)
+                input(c("\n  Press Enter to continue...", Colors.DIM))
+            elif choice == "4":
+                step_correlate(config, state)
+                input(c("\n  Press Enter to continue...", Colors.DIM))
+            elif choice == "5":
+                step_cluster(config, state)
+                input(c("\n  Press Enter to continue...", Colors.DIM))
+            elif choice == "6":
+                step_export(config, state)
+                input(c("\n  Press Enter to continue...", Colors.DIM))
+            elif choice == "7":
+                run_full_pipeline(config, state)
+                input(c("\n  Press Enter to continue...", Colors.DIM))
+            elif choice == "8":
+                handle_settings(config)
+            elif choice == "9":
+                print()
+                confirm = input(c("  Clear all pipeline state? (y/n): ", Colors.YELLOW)).strip().lower()
+                if confirm == "y":
+                    state.clear()
+                    print_success("Pipeline state cleared")
+                else:
+                    print("  Cancelled")
+                input(c("\n  Press Enter to continue...", Colors.DIM))
+            else:
+                print_error("Invalid choice. Enter a number 0-9.")
+                time.sleep(1)
+
+        except KeyboardInterrupt:
+            print("\n")
+            print(c("  Interrupted. Returning to menu...", Colors.YELLOW))
+            print()
+
+
+# ============================================================================
+# CLI Entry Point
 # ============================================================================
 
 def main():
+    import argparse
+
     parser = argparse.ArgumentParser(
         description="Stock Correlation Clustering CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Steps:
-  run          Run full pipeline (all steps)
-  universe     Fetch stock universe
-  prices       Fetch price data
-  preprocess   Compute returns and normalize
-  correlate    Compute correlation matrix
-  cluster      Run clustering algorithm
-  export       Export results to files
+Run without arguments to launch interactive menu.
 
 Examples:
-  # Full pipeline with yfinance (quick test)
-  python cli.py run
-
-  # Full pipeline with FMP (all stocks)
-  export FMP_API_KEY=your_key
-  python cli.py run --source fmp
-
-  # Large cap stocks only
-  python cli.py run --source fmp --market-cap-min 10000000000
-
-  # Run individual steps
-  python cli.py universe --source fmp
-  python cli.py prices
-  python cli.py preprocess
-  python cli.py correlate
-  python cli.py cluster --method dbscan
-  python cli.py export
-
-  # Use config file
-  python cli.py run --source fmp --config config/sample_filtered.yaml
+  python cli.py                    # Interactive menu
+  python cli.py --help             # Show help
         """
     )
 
-    # Global arguments
     parser.add_argument(
-        "--source", choices=["yfinance", "fmp"], default="yfinance",
-        help="Data source: yfinance (default) or fmp"
+        "--non-interactive", "-n", action="store_true",
+        help="Exit if run without arguments (for scripting)"
     )
-    parser.add_argument(
-        "--config", "-c",
-        help="Path to YAML config file (for FMP source)"
-    )
-    parser.add_argument(
-        "--output", "-o", default="./output",
-        help="Output directory (default: ./output)"
-    )
-    parser.add_argument(
-        "--work-dir", default="./.pipeline_state",
-        help="Directory for pipeline state (default: ./.pipeline_state)"
-    )
-
-    # Subcommands
-    subparsers = parser.add_subparsers(dest="command", help="Command to run")
-
-    # run command
-    run_parser = subparsers.add_parser("run", help="Run full pipeline")
-    run_parser.add_argument("--full", action="store_true", help="Use full universe (yfinance)")
-    run_parser.add_argument("--sample-size", type=int, default=50, help="Sample size (yfinance)")
-    run_parser.add_argument("--tickers", nargs="+", help="Specific tickers")
-    run_parser.add_argument("--market-cap-min", type=int, help="Min market cap (FMP)")
-    run_parser.add_argument("--market-cap-max", type=int, help="Max market cap (FMP)")
-    run_parser.add_argument("--days", type=int, default=180, help="Days of history")
-    run_parser.add_argument("--min-history", type=float, default=0.85, help="Min history %")
-    run_parser.add_argument("--method", choices=["hierarchical", "dbscan"], default="hierarchical")
-    run_parser.add_argument("--n-clusters", type=int, help="Number of clusters")
-    run_parser.add_argument("--correlation-threshold", type=float, default=0.7)
-    run_parser.add_argument("--visualize", action="store_true", default=True)
-    run_parser.add_argument("--no-visualize", action="store_false", dest="visualize")
-
-    # universe command
-    uni_parser = subparsers.add_parser("universe", help="Fetch stock universe")
-    uni_parser.add_argument("--full", action="store_true")
-    uni_parser.add_argument("--sample-size", type=int, default=50)
-    uni_parser.add_argument("--tickers", nargs="+")
-    uni_parser.add_argument("--market-cap-min", type=int)
-    uni_parser.add_argument("--market-cap-max", type=int)
-
-    # prices command
-    prices_parser = subparsers.add_parser("prices", help="Fetch price data")
-    prices_parser.add_argument("--days", type=int, default=180)
-
-    # preprocess command
-    prep_parser = subparsers.add_parser("preprocess", help="Preprocess data")
-    prep_parser.add_argument("--min-history", type=float, default=0.85)
-
-    # correlate command
-    corr_parser = subparsers.add_parser("correlate", help="Compute correlations")
-
-    # cluster command
-    clust_parser = subparsers.add_parser("cluster", help="Run clustering")
-    clust_parser.add_argument("--method", choices=["hierarchical", "dbscan"], default="hierarchical")
-    clust_parser.add_argument("--n-clusters", type=int)
-
-    # export command
-    exp_parser = subparsers.add_parser("export", help="Export results")
-    exp_parser.add_argument("--correlation-threshold", type=float, default=0.7)
-    exp_parser.add_argument("--visualize", action="store_true", default=True)
-    exp_parser.add_argument("--no-visualize", action="store_false", dest="visualize")
 
     args = parser.parse_args()
 
-    if not args.command:
+    if args.non_interactive:
         parser.print_help()
         sys.exit(0)
 
-    # Initialize state
-    state = PipelineState(Path(args.work_dir))
-
     try:
-        if args.command == "run":
-            run_full_pipeline(args, state)
-        elif args.command == "universe":
-            step_universe(args, state)
-        elif args.command == "prices":
-            step_prices(args, state)
-        elif args.command == "preprocess":
-            step_preprocess(args, state)
-        elif args.command == "correlate":
-            step_correlate(args, state)
-        elif args.command == "cluster":
-            step_cluster(args, state)
-        elif args.command == "export":
-            step_export(args, state)
-
+        interactive_menu()
     except KeyboardInterrupt:
-        print("\n\n  Pipeline interrupted by user.")
-        sys.exit(1)
+        print("\n\n  Exiting...")
+        sys.exit(0)
     except Exception as e:
-        logger.exception(f"Pipeline failed: {e}")
+        logger.exception(f"Error: {e}")
         sys.exit(1)
 
 
