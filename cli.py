@@ -273,22 +273,77 @@ def step_universe(config: Config, state: PipelineState) -> list[dict]:
 
     else:
         # yfinance source
-        from price_correlation.universe import get_full_universe, get_sample_tickers
-
         print_stat("Data source", "yfinance")
 
         if config.tickers:
+            print_stat("Mode", "Custom tickers")
+            print()
+            print(c("  Loading custom tickers...", Colors.DIM), flush=True)
             tickers = config.tickers
             universe = [{"symbol": t} for t in tickers]
-            print_stat("Mode", "Custom tickers")
+            print_success(f"Loaded {len(tickers)} custom tickers")
         elif config.full:
-            print_stat("Mode", "Full (S&P 500 + NASDAQ-100)")
-            tickers = get_full_universe()
+            print_stat("Mode", "Full (S&P 500 + NASDAQ-100 + DOW)")
+            print()
+
+            # Fetch S&P 500
+            print(c("  Fetching S&P 500 tickers from Wikipedia...", Colors.DIM), flush=True)
+            import pandas as pd
+            try:
+                url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+                tables = pd.read_html(url)
+                sp500 = tables[0]["Symbol"].str.replace(".", "-", regex=False).tolist()
+                print_success(f"S&P 500: {len(sp500)} tickers")
+            except Exception as e:
+                print_warning(f"S&P 500 fetch failed: {e}")
+                sp500 = []
+
+            # Fetch NASDAQ-100
+            print(c("  Fetching NASDAQ-100 tickers from Wikipedia...", Colors.DIM), flush=True)
+            try:
+                url = "https://en.wikipedia.org/wiki/Nasdaq-100"
+                tables = pd.read_html(url)
+                nasdaq100 = []
+                for table in tables:
+                    if "Ticker" in table.columns:
+                        nasdaq100 = table["Ticker"].tolist()
+                        break
+                    if "Symbol" in table.columns:
+                        nasdaq100 = table["Symbol"].tolist()
+                        break
+                print_success(f"NASDAQ-100: {len(nasdaq100)} tickers")
+            except Exception as e:
+                print_warning(f"NASDAQ-100 fetch failed: {e}")
+                nasdaq100 = []
+
+            # Fetch DOW
+            print(c("  Fetching DOW 30 tickers from Wikipedia...", Colors.DIM), flush=True)
+            try:
+                url = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
+                tables = pd.read_html(url)
+                dow = []
+                for table in tables:
+                    if "Symbol" in table.columns:
+                        dow = table["Symbol"].tolist()
+                        break
+                print_success(f"DOW 30: {len(dow)} tickers")
+            except Exception as e:
+                print_warning(f"DOW fetch failed: {e}")
+                dow = []
+
+            # Combine and deduplicate
+            print(c("  Combining and deduplicating...", Colors.DIM), flush=True)
+            tickers = sorted(set(sp500 + nasdaq100 + dow))
             universe = [{"symbol": t} for t in tickers]
+            print_success(f"Combined unique: {len(tickers)} tickers")
         else:
             print_stat("Mode", f"Sample ({config.sample_size} stocks)")
+            print()
+            print(c("  Loading sample tickers...", Colors.DIM), flush=True)
+            from price_correlation.universe import get_sample_tickers
             tickers = get_sample_tickers(config.sample_size)
             universe = [{"symbol": t} for t in tickers]
+            print_success(f"Loaded {len(tickers)} sample tickers")
 
     # Stats
     print_subheader("Universe Statistics")
@@ -359,10 +414,40 @@ def step_prices(config: Config, state: PipelineState) -> pd.DataFrame:
             progress_callback=print_progress,
         )
     else:
-        from price_correlation.ingestion import fetch_price_history
-
         print_subheader("Fetching from yfinance")
-        prices = fetch_price_history(tickers, period_months=config.days // 30)
+        print()
+        print(c(f"  Downloading {len(tickers)} tickers ({config.days} days)...", Colors.DIM), flush=True)
+        print(c("  This may take a moment...", Colors.DIM), flush=True)
+        print()
+
+        # Use yfinance directly with progress enabled
+        from datetime import datetime, timedelta
+        import yfinance as yf
+
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_dt = datetime.now() - timedelta(days=config.days)
+        start_date = start_dt.strftime("%Y-%m-%d")
+
+        print(c(f"  Date range: {start_date} to {end_date}", Colors.DIM), flush=True)
+        print()
+
+        data = yf.download(
+            tickers,
+            start=start_date,
+            end=end_date,
+            auto_adjust=True,
+            progress=True,  # Show yfinance progress bar
+            threads=True,
+        )
+
+        if isinstance(data.columns, pd.MultiIndex):
+            prices = data["Close"]
+        else:
+            prices = data[["Close"]]
+            prices.columns = tickers
+
+        print()
+        print_success(f"Download complete: {len(prices.columns)} tickers")
 
     # Stats
     print_subheader("Price Data Statistics")
@@ -406,7 +491,21 @@ def step_preprocess(config: Config, state: PipelineState) -> pd.DataFrame:
     print_stat("Min history required", f"{config.min_history * 100:.0f}%")
 
     print_subheader("Processing")
-    returns = preprocess_pipeline(prices, min_history_pct=config.min_history)
+    print()
+    print(c("  Cleaning price data...", Colors.DIM), flush=True)
+    from price_correlation.preprocess import clean_price_data, compute_log_returns, zscore_normalize
+
+    cleaned = clean_price_data(prices, min_history_pct=config.min_history)
+    print_success(f"Cleaned: {len(cleaned.columns)} tickers pass history filter")
+
+    print(c("  Computing log returns...", Colors.DIM), flush=True)
+    log_returns = compute_log_returns(cleaned)
+    print_success(f"Log returns: {len(log_returns)} rows")
+
+    print(c("  Normalizing (z-score)...", Colors.DIM), flush=True)
+    returns = zscore_normalize(log_returns)
+    print_success("Normalization complete")
+
     valid_tickers = list(returns.columns)
 
     print_subheader("Preprocessing Results")
@@ -460,9 +559,18 @@ def step_correlate(config: Config, state: PipelineState) -> tuple:
     print_stat("Tickers", len(valid_tickers))
 
     print_subheader("Computing Correlation Matrix")
+    print()
+    print(c("  Building Pearson correlation matrix...", Colors.DIM), flush=True)
     corr_matrix = compute_correlation_matrix(returns)
+    print_success(f"Correlation matrix: {corr_matrix.shape[0]}x{corr_matrix.shape[1]}")
+
+    print(c("  Converting to distance matrix...", Colors.DIM), flush=True)
     dist_matrix = correlation_to_distance(corr_matrix)
+    print_success("Distance matrix computed")
+
+    print(c("  Creating condensed distance vector...", Colors.DIM), flush=True)
     condensed_dist = get_condensed_distance(returns)
+    print_success(f"Condensed vector: {len(condensed_dist):,} pairs")
 
     n = len(valid_tickers)
     upper_tri = corr_matrix[np.triu_indices(n, k=1)]
@@ -537,30 +645,34 @@ def step_cluster(config: Config, state: PipelineState) -> np.ndarray:
 
     if config.method == "dbscan":
         print_subheader("DBSCAN Clustering")
-        print("  Finding optimal epsilon...")
+        print()
+        print(c("  Finding optimal epsilon using k-distance graph...", Colors.DIM), flush=True)
         eps = find_optimal_eps(dist_matrix)
-        print_stat("Optimal epsilon", eps)
+        print_success(f"Optimal epsilon: {eps:.4f}")
         print_stat("Min samples", 5)
 
-        print("  Running DBSCAN...")
+        print(c("  Running DBSCAN algorithm...", Colors.DIM), flush=True)
         labels = cluster_dbscan(dist_matrix, eps=eps)
+        print_success("DBSCAN complete")
 
     else:
         print_subheader("Hierarchical Clustering")
-        print("  Building dendrogram...")
+        print()
+        print(c("  Building linkage matrix (dendrogram)...", Colors.DIM), flush=True)
         Z = cluster_hierarchical(condensed_dist, method="average")
+        print_success("Dendrogram built")
 
         if config.n_clusters:
             best_k = config.n_clusters
             print_stat("Clusters (specified)", best_k)
         else:
-            print("  Finding optimal k...")
+            print(c("  Finding optimal k using silhouette analysis...", Colors.DIM), flush=True)
             best_k, best_score = find_optimal_k(Z, dist_matrix, max_k=min(50, n // 5))
-            print_stat("Optimal k", best_k)
-            print_stat("Silhouette at k", best_score)
+            print_success(f"Optimal k: {best_k} (silhouette: {best_score:.4f})")
 
-        print("  Cutting dendrogram...")
+        print(c("  Cutting dendrogram to form clusters...", Colors.DIM), flush=True)
         labels = cut_dendrogram(Z, n_clusters=best_k) - 1
+        print_success("Clusters formed")
 
     # Compute quality metrics
     print_subheader("Clustering Quality")
@@ -638,11 +750,17 @@ def step_export(config: Config, state: PipelineState) -> dict:
 
     # Export clusters
     print_subheader("Exporting Files")
+    print()
+    print(c("  Writing JSON cluster file...", Colors.DIM), flush=True)
+    print(c("  Writing Parquet cluster file...", Colors.DIM), flush=True)
+    print(c("  Writing correlated pairs file...", Colors.DIM), flush=True)
+
     output_files = export_all(
         labels, valid_tickers, corr_matrix, output_dir,
         correlation_threshold=config.correlation_threshold
     )
 
+    print()
     for name, path in output_files.items():
         size = path.stat().st_size
         if size > 1024 * 1024:
@@ -655,6 +773,7 @@ def step_export(config: Config, state: PipelineState) -> dict:
 
     # Save universe metadata
     if universe and len(universe) > 0 and "marketCap" in universe[0]:
+        print(c("  Writing universe metadata...", Colors.DIM), flush=True)
         universe_path = output_dir / "universe_metadata.json"
         with open(universe_path, "w") as f:
             json.dump(universe, f, indent=2)
@@ -663,10 +782,13 @@ def step_export(config: Config, state: PipelineState) -> dict:
     # Visualization
     if config.visualize:
         print_subheader("Generating Visualization")
+        print()
+        print(c("  Running t-SNE dimensionality reduction...", Colors.DIM), flush=True)
+        print(c("  Creating scatter plot...", Colors.DIM), flush=True)
         try:
             viz_path = output_dir / "cluster_visualization.png"
             generate_tsne_plot(dist_matrix, labels, valid_tickers, str(viz_path))
-            print_success(f"Visualization: {viz_path}")
+            print_success(f"Visualization saved: {viz_path}")
         except Exception as e:
             print_warning(f"Visualization skipped: {e}")
 
