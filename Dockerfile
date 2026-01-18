@@ -43,4 +43,5 @@ EXPOSE 5000
 # Default command: run web server
 # For CLI: docker run -it ... python cli.py
 # For one-shot pipeline: docker run ... python -c "from price_correlation.pipeline import run_pipeline; run_pipeline()"
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "4", "--timeout", "300", "price_correlation.web:app"]
+# Single worker to share pipeline state, multiple threads for concurrency
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "8", "--timeout", "600", "price_correlation.web:app"]

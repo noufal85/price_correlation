@@ -198,23 +198,24 @@ def run_pipeline():
 
     # Get parameters from request
     data = request.get_json() or {}
-    use_sample = data.get("use_sample", False)
+    use_sample = data.get("use_sample", True)  # Default to sample mode for web
     sample_size = data.get("sample_size", 50)
     days = data.get("days", 180)
     method = data.get("method", "hierarchical")
 
-    def run_in_background():
-        # Reset state
-        pipeline_state["running"] = True
-        pipeline_state["error"] = None
-        pipeline_state["last_run"] = datetime.now().isoformat()
-        pipeline_state["current_step"] = 0
-        pipeline_state["step_name"] = "Initializing"
-        pipeline_state["step_details"] = ""
-        pipeline_state["logs"] = []
-        pipeline_state["start_time"] = time.time()
-        pipeline_state["kill_requested"] = False
+    # Reset state BEFORE starting thread so UI sees it immediately
+    pipeline_state["running"] = True
+    pipeline_state["error"] = None
+    pipeline_state["last_run"] = datetime.now().isoformat()
+    pipeline_state["last_result"] = None
+    pipeline_state["current_step"] = 0
+    pipeline_state["step_name"] = "Initializing"
+    pipeline_state["step_details"] = ""
+    pipeline_state["logs"] = []
+    pipeline_state["start_time"] = time.time()
+    pipeline_state["kill_requested"] = False
 
+    def run_in_background():
         # Capture stdout for logging
         log_capture = PipelineLogCapture(pipeline_state)
         old_stdout = sys.stdout
