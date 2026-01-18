@@ -2,6 +2,20 @@
 
 Identify groups of correlated stocks across NYSE/NASDAQ using ML clustering algorithms on historical price data.
 
+## What is Stock Clustering?
+
+Stock clustering groups stocks that move together in the market. When two stocks are "correlated," their prices tend to rise and fall at similar times. This system:
+
+1. **Calculates correlation** - Measures how similarly each pair of stocks moves over the past 6 months
+2. **Converts to distance** - Highly correlated stocks are "close" to each other; uncorrelated stocks are "far apart"
+3. **Groups into clusters** - Uses machine learning algorithms to find natural groupings of similar stocks
+
+**Why is this useful?**
+- **Portfolio diversification**: Avoid holding multiple stocks from the same cluster (they'll all drop together)
+- **Pairs trading**: Find highly correlated pairs for mean-reversion strategies
+- **Sector analysis**: Discover hidden relationships beyond traditional sector classifications
+- **Risk management**: Understand which stocks are likely to move together during market stress
+
 ## Features
 
 - **Full Stock Universe**: Fetch ALL NYSE/NASDAQ stocks via FMP API with configurable filters
