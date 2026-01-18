@@ -106,6 +106,7 @@ def generate_tsne_plot(
     tsne = TSNE(
         n_components=2,
         metric="precomputed",
+        init="random",  # Must use random init with precomputed distances
         perplexity=min(30, len(labels) - 1),
         random_state=42,
     )
