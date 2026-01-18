@@ -238,8 +238,9 @@
             }
 
             // Update step indicators
+            const isCompleted = !data.running && data.last_result && !data.error;
             for (let i = 1; i <= data.total_steps; i++) {
-                updateStepIndicator(i, data.current_step);
+                updateStepIndicator(i, data.current_step, isCompleted);
             }
 
             // Update status badge
@@ -271,7 +272,7 @@
         }
     }
 
-    function updateStepIndicator(stepNum, currentStep) {
+    function updateStepIndicator(stepNum, currentStep, isCompleted) {
         const stepEl = document.getElementById('step-' + stepNum);
         if (!stepEl) return;
 
@@ -284,7 +285,13 @@
         check.classList.add('hidden');
         spinner.classList.add('hidden');
 
-        if (stepNum < currentStep) {
+        // If pipeline is completed, all steps should be green
+        if (isCompleted && stepNum <= currentStep) {
+            stepEl.classList.remove('bg-gray-50', 'bg-blue-50');
+            stepEl.classList.add('bg-green-50');
+            icon.className = 'step-icon w-8 h-8 rounded-full flex items-center justify-center mr-3 bg-green-500 text-white';
+            check.classList.remove('hidden');
+        } else if (stepNum < currentStep) {
             // Completed
             stepEl.classList.remove('bg-gray-50', 'bg-blue-50');
             stepEl.classList.add('bg-green-50');

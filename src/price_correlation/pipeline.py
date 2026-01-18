@@ -138,6 +138,17 @@ def run_pipeline(config: PipelineConfig | dict | None = None) -> dict:
 
     print_cluster_summary(labels, valid_tickers)
 
+    # Print clear completion summary
+    print("", flush=True)
+    print("=" * 50, flush=True)
+    print("PIPELINE COMPLETED SUCCESSFULLY", flush=True)
+    print("=" * 50, flush=True)
+    print(f"  Stocks processed: {len(valid_tickers)}", flush=True)
+    print(f"  Clusters found: {stats['n_clusters']}", flush=True)
+    print(f"  Silhouette score: {silhouette:.3f}", flush=True)
+    print(f"  Total time: {elapsed:.1f}s", flush=True)
+    print("=" * 50, flush=True)
+
     return {
         "n_stocks_input": len(tickers),
         "n_stocks_processed": len(valid_tickers),
