@@ -405,15 +405,37 @@
         }
     }
 
+    // Load all existing logs
+    async function loadAllLogs() {
+        try {
+            const res = await fetch('/api/pipeline/logs?since=0');
+            const data = await res.json();
+            if (data.logs && data.logs.length > 0) {
+                // Clear the "waiting" message
+                document.getElementById('logs-content').innerHTML = '';
+                data.logs.forEach(log => {
+                    addLog(`[${log.time}] ${log.message}`);
+                });
+                logIndex = data.total;
+            }
+        } catch (e) {
+            console.error('Error loading logs:', e);
+        }
+    }
+
     // Check status on page load
     (async function() {
         await updateStatus();
         const res = await fetch('/api/pipeline/status');
         const data = await res.json();
         if (data.running) {
+            // Load existing logs first, then start polling
+            await loadAllLogs();
             startPolling();
             updateUIRunning();
         } else if (data.last_result || data.error) {
+            // Load logs from the completed run
+            await loadAllLogs();
             showResults(data);
         }
     })();

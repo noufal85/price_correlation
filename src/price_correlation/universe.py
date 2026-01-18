@@ -79,7 +79,11 @@ def get_full_universe(include_validation: bool = False) -> list[str]:
 
 
 def get_sample_tickers(n: int = 50) -> list[str]:
-    """Get a sample of tickers for testing."""
+    """Get a sample of tickers for testing.
+
+    If n > 50, fetches additional tickers from the full universe.
+    """
+    # Core sample tickers (well-known, liquid stocks)
     samples = [
         "AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA", "BRK-B",
         "JPM", "V", "JNJ", "WMT", "PG", "MA", "UNH", "HD", "DIS", "BAC",
@@ -88,7 +92,23 @@ def get_sample_tickers(n: int = 50) -> list[str]:
         "PM", "UPS", "ORCL", "RTX", "LOW", "IBM", "GS", "CAT", "AMGN",
         "DE", "SBUX", "AXP", "BLK", "MDLZ"
     ]
-    return samples[:n]
+
+    if n <= len(samples):
+        return samples[:n]
+
+    # Need more tickers - fetch from full universe
+    import random
+    try:
+        full_universe = get_full_universe()
+        # Remove duplicates with existing samples
+        additional = [t for t in full_universe if t not in samples]
+        random.shuffle(additional)
+        # Add additional tickers to reach n
+        samples.extend(additional[:n - len(samples)])
+        return samples[:n]
+    except Exception as e:
+        print(f"  Warning: Could not fetch additional tickers: {e}")
+        return samples
 
 
 def get_full_universe_cached(
