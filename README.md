@@ -18,12 +18,14 @@ Identify groups of correlated stocks across NYSE/NASDAQ using ML clustering algo
 git clone git@github.com:noufal85/price_correlation.git
 cd price_correlation
 
-# Create and activate virtual environment
+# Create virtual environment (one-time setup)
 python -m venv venv
+
+# Activate virtual environment (REQUIRED before every session)
 source venv/bin/activate        # macOS/Linux
 # venv\Scripts\activate         # Windows
 
-# Install dependencies
+# Install dependencies (one-time setup)
 pip install -e ".[dev,full]"
 
 # Launch interactive menu
@@ -32,7 +34,12 @@ python cli.py
 # For FMP data source, set API key first
 export FMP_API_KEY=your_key_here
 python cli.py
+
+# When done, deactivate virtual environment
+deactivate
 ```
+
+> **Important**: Always activate the virtual environment (`source venv/bin/activate`) before running any commands.
 
 ## CLI Usage
 
@@ -136,32 +143,34 @@ pip install -e ".[dev,full]"
 
 ## Usage
 
-### Command Line
+### Running the CLI
 
 ```bash
-# Activate virtual environment first
+# Step 1: Activate virtual environment (ALWAYS do this first)
+source venv/bin/activate        # macOS/Linux
+# venv\Scripts\activate         # Windows
+
+# Step 2: Launch interactive menu
+python cli.py
+
+# Step 3: When done, deactivate
+deactivate
+```
+
+### Typical Workflow
+
+```bash
+# Start a new session
 source venv/bin/activate
 
-# Sample run (50 stocks, 6 months) - quick test
-python run.py
+# Launch CLI and select options from menu
+python cli.py
+# → Press 8 to change settings (source, method, etc.)
+# → Press 7 to run full pipeline, OR
+# → Press 1-6 to run individual steps
 
-# Full universe (S&P 500 + NASDAQ-100, 18 months)
-python run.py --full
-
-# Custom tickers
-python run.py --tickers AAPL MSFT GOOGL JPM BAC XOM CVX
-
-# Custom lookback period
-python run.py --months 12
-
-# Use DBSCAN instead of hierarchical clustering
-python run.py --method dbscan
-
-# Custom output directory
-python run.py --output ./results
-
-# Combine options
-python run.py --full --method dbscan --output ./results
+# Exit CLI with 0, then deactivate
+deactivate
 ```
 
 ### Python API
@@ -235,7 +244,7 @@ ORDER BY correlation DESC;
 ## Running Tests
 
 ```bash
-# Activate virtual environment
+# Activate virtual environment first
 source venv/bin/activate
 
 # Run all tests (uses real data, may take a few minutes)
@@ -243,13 +252,16 @@ pytest tests/ -v
 
 # Run specific test
 pytest tests/test_integration.py::TestFullPipeline -v
+
+# Deactivate when done
+deactivate
 ```
 
 ## Project Structure
 
 ```
 price_correlation/
-├── cli.py                 # Unified CLI (run, universe, prices, etc.)
+├── cli.py                 # Interactive menu CLI
 ├── pyproject.toml         # Package configuration
 ├── README.md              # This file
 ├── CLAUDE.md              # Development instructions

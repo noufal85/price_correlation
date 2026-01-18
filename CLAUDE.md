@@ -247,26 +247,41 @@ pip install -e ".[dev,full]"
 ## Common Commands
 
 ```bash
-# IMPORTANT: Always activate venv first
-source venv/bin/activate
+# ============================================
+# ALWAYS activate virtual environment first!
+# ============================================
+source venv/bin/activate        # macOS/Linux
+# venv\Scripts\activate         # Windows
 
-# Run full pipeline (sample data via yfinance)
-python cli.py run
+# Launch interactive menu
+python cli.py
 
-# Run with FMP data source (full universe)
+# ============================================
+# Interactive Menu Options:
+# ============================================
+# 1  Fetch Universe       - Get list of stocks
+# 2  Fetch Prices         - Download price data
+# 3  Preprocess           - Compute returns
+# 4  Correlations         - Build correlation matrix
+# 5  Cluster              - Run clustering
+# 6  Export               - Save results
+# 7  Run Full Pipeline    - Execute all steps (1-6)
+# 8  Settings             - Change configuration
+# 9  Clear State          - Reset pipeline
+# 0  Exit
+
+# ============================================
+# For FMP data source, set API key first:
+# ============================================
 export FMP_API_KEY=your_key
-python cli.py run --source fmp
+python cli.py
+# → Press 8 (Settings)
+# → Press 1 (Data Source)
+# → Enter: fmp
 
-# Run with market cap filter
-python cli.py run --source fmp --market-cap-min 1000000000
-
-# Run individual steps
-python cli.py universe --source fmp
-python cli.py prices
-python cli.py preprocess
-python cli.py correlate
-python cli.py cluster --method dbscan
-python cli.py export
+# ============================================
+# Other commands (run after activating venv)
+# ============================================
 
 # Run tests (real data, may take time)
 pytest tests/ -v
