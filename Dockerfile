@@ -24,11 +24,8 @@ COPY src/ ./src/
 COPY cli.py .
 COPY scripts/ ./scripts/
 
-# Copy config if it exists
-COPY config/ ./config/ 2>/dev/null || true
-
-# Create output directory
-RUN mkdir -p /app/output
+# Create output and config directories (config is volume-mounted in docker-compose)
+RUN mkdir -p /app/output /app/config
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
