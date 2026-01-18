@@ -26,49 +26,76 @@ source venv/bin/activate        # macOS/Linux
 # Install dependencies
 pip install -e ".[dev,full]"
 
-# Quick test with sample data (yfinance)
-python run.py
-
-# --- OR ---
+# Quick test with sample data (50 stocks)
+python cli.py run
 
 # Full universe with FMP (requires API key)
-export FMP_API_KEY=your_key_here    # Get free key at financialmodelingprep.com
-python run_fmp.py
-```
-
-## Data Sources
-
-### Option 1: FMP API (Recommended for Full Universe)
-
-Uses [Financial Modeling Prep](https://financialmodelingprep.com) API to fetch the complete stock universe with filters.
-
-```bash
-# Get your free API key
-# https://financialmodelingprep.com/developer
-
-# Set API key
 export FMP_API_KEY=your_key_here
-
-# Run with full universe
-python run_fmp.py
-
-# Run with market cap filter ($1B+ stocks)
-python run_fmp.py --market-cap-min 1000000000
-
-# Use custom config
-python run_fmp.py --config config/sample_filtered.yaml
+python cli.py run --source fmp
 ```
 
-### Option 2: yfinance (Quick Testing)
+## CLI Usage
 
-Uses yfinance for smaller samples (S&P 500, NASDAQ-100).
+Single unified CLI for all operations with detailed logging.
+
+### Full Pipeline
 
 ```bash
-# Sample run (50 stocks)
-python run.py
+# Quick test (50 stocks via yfinance)
+python cli.py run
 
-# Full S&P 500 + NASDAQ-100
-python run.py --full
+# Full universe (all NYSE/NASDAQ via FMP)
+export FMP_API_KEY=your_key_here
+python cli.py run --source fmp
+
+# Large cap only ($1B+)
+python cli.py run --source fmp --market-cap-min 1000000000
+
+# Use config file
+python cli.py run --source fmp --config config/sample_filtered.yaml
+
+# DBSCAN instead of hierarchical
+python cli.py run --method dbscan
+```
+
+### Step-by-Step Execution
+
+Run individual steps and inspect results between each:
+
+```bash
+# Step 1: Fetch universe
+python cli.py universe --source fmp
+
+# Step 2: Fetch prices
+python cli.py prices --days 180
+
+# Step 3: Preprocess (compute returns)
+python cli.py preprocess
+
+# Step 4: Compute correlations
+python cli.py correlate
+
+# Step 5: Cluster
+python cli.py cluster --method hierarchical
+
+# Step 6: Export results
+python cli.py export
+```
+
+### CLI Options
+
+```bash
+python cli.py --help           # Show all commands
+python cli.py run --help       # Show run options
+
+# Common options
+--source fmp|yfinance          # Data source (default: yfinance)
+--config PATH                  # Config file for FMP filters
+--output DIR                   # Output directory (default: ./output)
+--days N                       # Days of price history (default: 180)
+--method hierarchical|dbscan   # Clustering method
+--market-cap-min N             # Min market cap in USD (FMP)
+--market-cap-max N             # Max market cap in USD (FMP)
 ```
 
 ## Installation
@@ -218,8 +245,7 @@ pytest tests/test_integration.py::TestFullPipeline -v
 
 ```
 price_correlation/
-├── run.py                 # CLI runner (yfinance)
-├── run_fmp.py             # CLI runner (FMP full universe)
+├── cli.py                 # Unified CLI (run, universe, prices, etc.)
 ├── pyproject.toml         # Package configuration
 ├── README.md              # This file
 ├── CLAUDE.md              # Development instructions
@@ -232,7 +258,7 @@ price_correlation/
 │   └── tasks/             # Task breakdown
 ├── src/price_correlation/
 │   ├── fmp_client.py      # FMP API client
-│   ├── universe.py        # Ticker list fetching
+│   ├── universe.py        # Ticker list fetching (yfinance)
 │   ├── ingestion.py       # Price data (yfinance)
 │   ├── preprocess.py      # Returns, normalization
 │   ├── correlation.py     # Correlation matrices

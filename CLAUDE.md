@@ -250,17 +250,26 @@ pip install -e ".[dev,full]"
 # IMPORTANT: Always activate venv first
 source venv/bin/activate
 
-# Run the pipeline (sample data)
-python run.py
+# Run full pipeline (sample data via yfinance)
+python cli.py run
 
-# Run with full universe
-python run.py --full
+# Run with FMP data source (full universe)
+export FMP_API_KEY=your_key
+python cli.py run --source fmp
+
+# Run with market cap filter
+python cli.py run --source fmp --market-cap-min 1000000000
+
+# Run individual steps
+python cli.py universe --source fmp
+python cli.py prices
+python cli.py preprocess
+python cli.py correlate
+python cli.py cluster --method dbscan
+python cli.py export
 
 # Run tests (real data, may take time)
 pytest tests/ -v
-
-# Run specific test
-pytest tests/test_integration.py::test_full_pipeline -v
 
 # Format code
 ruff format src/ tests/
