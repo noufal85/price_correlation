@@ -67,9 +67,9 @@ class PipelineLogCapture:
                 "time": datetime.now().strftime("%H:%M:%S"),
                 "message": text.strip()
             })
-            # Keep only last 100 log entries
-            if len(self.state["logs"]) > 100:
-                self.state["logs"] = self.state["logs"][-100:]
+            # Keep only last 500 log entries
+            if len(self.state["logs"]) > 500:
+                self.state["logs"] = self.state["logs"][-500:]
 
             # Detect step changes
             if text.startswith("Step "):
