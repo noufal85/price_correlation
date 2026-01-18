@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Clusters - Stock Clustering{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-gray-900">Cluster Analysis</h1>
+        <div class="flex items-center space-x-4">
+            <span class="text-sm text-gray-500">Analysis Date:</span>
+            <span id="analysis-date" class="font-semibold">-</span>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-sm text-gray-500 uppercase tracking-wide">Total Stocks</div>
+            <div id="stat-total" class="text-3xl font-bold text-gray-900 mt-2">-</div>
+        </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-sm text-gray-500 uppercase tracking-wide">Clusters</div>
+            <div id="stat-clusters" class="text-3xl font-bold text-blue-600 mt-2">-</div>
+        </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-sm text-gray-500 uppercase tracking-wide">Avg Cluster Size</div>
+            <div id="stat-avg" class="text-3xl font-bold text-green-600 mt-2">-</div>
+        </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-sm text-gray-500 uppercase tracking-wide">Noise Points</div>
+            <div id="stat-noise" class="text-3xl font-bold text-gray-500 mt-2">-</div>
+        </div>
+    </div>
+
+    <!-- Cluster Size Chart -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Cluster Sizes</h2>
+        <div class="h-64">
+            <canvas id="cluster-chart"></canvas>
+        </div>
+    </div>
+
+    <!-- Clusters Grid -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Cluster Members</h2>
+        <div id="clusters-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="text-gray-400 text-center py-8">Loading clusters...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let clusterChart = null;
+
+    async function loadClusters() {
+        try {
+            const res = await fetch('/api/clusters');
+            const data = await res.json();
+
+            document.getElementById('analysis-date').textContent = data.analysis_date;
+            document.getElementById('stat-total').textContent = data.total_stocks;
+            document.getElementById('stat-clusters').textContent = data.n_clusters;
+            document.getElementById('stat-noise').textContent = data.n_noise;
+
+            // Calculate average cluster size (excluding noise)
+            const clusters = data.clusters;
+            const clusterSizes = Object.entries(clusters)
+                .filter(([id]) => id !== '-1')
+                .map(([, members]) => members.length);
+            const avgSize = clusterSizes.length > 0
+                ? (clusterSizes.reduce((a, b) => a + b, 0) / clusterSizes.length).toFixed(1)
+                : '-';
+            document.getElementById('stat-avg').textContent = avgSize;
+
+            // Render clusters grid
+            const grid = document.getElementById('clusters-grid');
+            const sortedClusters = Object.entries(clusters)
+                .sort((a, b) => b[1].length - a[1].length);
+
+            grid.innerHTML = sortedClusters.map(([clusterId, members]) => {
+                const isNoise = clusterId === '-1';
+                const headerClass = isNoise ? 'bg-gray-100 text-gray-600' : 'bg-blue-50 text-blue-800';
+                const label = isNoise ? 'Noise' : `Cluster ${clusterId}`;
+
+                return `
+                    <div class="border rounded-lg overflow-hidden">
+                        <div class="${headerClass} px-4 py-2 font-medium flex justify-between items-center">
+                            <span>${label}</span>
+                            <span class="text-sm">${members.length} stocks</span>
+                        </div>
+                        <div class="p-4 max-h-48 overflow-y-auto">
+                            <div class="flex flex-wrap gap-1">
+                                ${members.map(ticker => `
+                                    <a href="/stock/${ticker}"
+                                       class="inline-block px-2 py-1 text-xs font-mono bg-gray-100 hover:bg-blue-100 rounded text-gray-700 hover:text-blue-700">
+                                        ${ticker}
+                                    </a>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Load chart data
+            const chartRes = await fetch('/api/charts/cluster-sizes');
+            const chartData = await chartRes.json();
+
+            // Create chart
+            const ctx = document.getElementById('cluster-chart').getContext('2d');
+            if (clusterChart) clusterChart.destroy();
+
+            clusterChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [{
+                        label: 'Number of Stocks',
+                        data: chartData.data,
+                        backgroundColor: chartData.labels.map(l =>
+                            l === 'Noise' ? 'rgba(156, 163, 175, 0.5)' : 'rgba(59, 130, 246, 0.5)'
+                        ),
+                        borderColor: chartData.labels.map(l =>
+                            l === 'Noise' ? 'rgba(156, 163, 175, 1)' : 'rgba(59, 130, 246, 1)'
+                        ),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { stepSize: 1 }
+                        }
+                    }
+                }
+            });
+
+        } catch (e) {
+            console.error('Error loading clusters:', e);
+            document.getElementById('clusters-grid').innerHTML =
+                '<div class="text-red-500 text-center py-8">Error loading clusters</div>';
+        }
+    }
+
+    loadClusters();
+</script>
+{% endblock %}

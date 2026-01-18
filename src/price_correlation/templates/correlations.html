@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Correlations - Stock Clustering{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-gray-900">Correlation Pairs</h1>
+        <div class="flex items-center space-x-4">
+            <label class="text-sm text-gray-500">Min Correlation:</label>
+            <select id="min-corr" class="border rounded px-3 py-1">
+                <option value="0.9">0.90+</option>
+                <option value="0.85">0.85+</option>
+                <option value="0.8">0.80+</option>
+                <option value="0.75">0.75+</option>
+                <option value="0.7" selected>0.70+</option>
+            </select>
+            <button id="refresh-btn" class="btn-secondary">Refresh</button>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-sm text-gray-500 uppercase tracking-wide">Total Pairs</div>
+            <div id="stat-pairs" class="text-3xl font-bold text-gray-900 mt-2">-</div>
+        </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-sm text-gray-500 uppercase tracking-wide">Highest Correlation</div>
+            <div id="stat-max" class="text-3xl font-bold text-green-600 mt-2">-</div>
+        </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-sm text-gray-500 uppercase tracking-wide">Analysis Date</div>
+            <div id="stat-date" class="text-xl font-semibold text-gray-900 mt-2">-</div>
+        </div>
+    </div>
+
+    <!-- Correlation Distribution Chart -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Correlation Distribution</h2>
+        <div class="h-48">
+            <canvas id="distribution-chart"></canvas>
+        </div>
+    </div>
+
+    <!-- Correlation Table -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Correlated Pairs</h2>
+        <div class="overflow-x-auto">
+            <table class="w-full table-hover">
+                <thead>
+                    <tr class="text-left text-xs text-gray-500 uppercase border-b">
+                        <th class="pb-3 w-8">#</th>
+                        <th class="pb-3">Stock A</th>
+                        <th class="pb-3">Stock B</th>
+                        <th class="pb-3 text-right">Correlation</th>
+                        <th class="pb-3 text-center">Strength</th>
+                        <th class="pb-3 text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="pairs-table" class="divide-y divide-gray-100">
+                    <tr><td colspan="6" class="py-8 text-center text-gray-400">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="load-more" class="mt-4 text-center hidden">
+            <button id="load-more-btn" class="btn-secondary">Load More</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let distributionChart = null;
+    let currentLimit = 50;
+
+    function getStrengthIndicator(corr) {
+        if (corr >= 0.95) return { text: 'Very Strong', class: 'bg-green-600' };
+        if (corr >= 0.9) return { text: 'Strong', class: 'bg-green-500' };
+        if (corr >= 0.85) return { text: 'Moderate', class: 'bg-blue-500' };
+        if (corr >= 0.8) return { text: 'Fair', class: 'bg-blue-400' };
+        return { text: 'Weak', class: 'bg-gray-400' };
+    }
+
+    async function loadCorrelations(limit = 50) {
+        const minCorr = document.getElementById('min-corr').value;
+
+        try {
+            const res = await fetch(`/api/correlations?min_corr=${minCorr}&limit=${limit}`);
+            const data = await res.json();
+
+            document.getElementById('stat-pairs').textContent = data.count;
+            document.getElementById('stat-date').textContent = data.analysis_date;
+
+            if (data.pairs && data.pairs.length > 0) {
+                document.getElementById('stat-max').textContent = data.pairs[0].correlation.toFixed(4);
+
+                const tbody = document.getElementById('pairs-table');
+                tbody.innerHTML = data.pairs.map((p, i) => {
+                    const strength = getStrengthIndicator(p.correlation);
+                    const barWidth = Math.round((p.correlation - 0.7) * 333); // Scale 0.7-1.0 to 0-100
+
+                    return `
+                        <tr>
+                            <td class="py-3 text-sm text-gray-400">${i + 1}</td>
+                            <td class="py-3">
+                                <a href="/stock/${p.ticker_a}" class="text-blue-600 hover:underline font-medium">${p.ticker_a}</a>
+                            </td>
+                            <td class="py-3">
+                                <a href="/stock/${p.ticker_b}" class="text-blue-600 hover:underline font-medium">${p.ticker_b}</a>
+                            </td>
+                            <td class="py-3 text-right">
+                                <span class="font-mono font-semibold">${p.correlation.toFixed(4)}</span>
+                            </td>
+                            <td class="py-3">
+                                <div class="flex items-center justify-center">
+                                    <div class="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                        <div class="${strength.class} h-full" style="width: ${barWidth}%"></div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="py-3 text-center">
+                                <a href="/stock/${p.ticker_a}" class="text-xs text-blue-600 hover:underline mr-2">View A</a>
+                                <a href="/stock/${p.ticker_b}" class="text-xs text-blue-600 hover:underline">View B</a>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+
+                // Show load more if we got full results
+                if (data.count >= limit) {
+                    document.getElementById('load-more').classList.remove('hidden');
+                } else {
+                    document.getElementById('load-more').classList.add('hidden');
+                }
+            } else {
+                document.getElementById('pairs-table').innerHTML =
+                    '<tr><td colspan="6" class="py-8 text-center text-gray-400">No correlations found</td></tr>';
+            }
+
+            // Load distribution chart
+            const chartRes = await fetch('/api/charts/correlation-distribution');
+            const chartData = await chartRes.json();
+
+            const ctx = document.getElementById('distribution-chart').getContext('2d');
+            if (distributionChart) distributionChart.destroy();
+
+            distributionChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.labels,
+                    datasets: [{
+                        label: 'Number of Pairs',
+                        data: chartData.data,
+                        backgroundColor: 'rgba(34, 197, 94, 0.5)',
+                        borderColor: 'rgba(34, 197, 94, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+
+        } catch (e) {
+            console.error('Error loading correlations:', e);
+        }
+    }
+
+    // Event listeners
+    document.getElementById('min-corr').addEventListener('change', () => {
+        currentLimit = 50;
+        loadCorrelations(currentLimit);
+    });
+
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+        currentLimit = 50;
+        loadCorrelations(currentLimit);
+    });
+
+    document.getElementById('load-more-btn').addEventListener('click', () => {
+        currentLimit += 50;
+        loadCorrelations(currentLimit);
+    });
+
+    // Initialize
+    loadCorrelations();
+</script>
+{% endblock %}

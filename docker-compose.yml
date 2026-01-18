@@ -1,36 +1,50 @@
 version: '3.8'
 
 services:
-  price-correlation:
+  web:
     build: .
     image: price-correlation:latest
-    container_name: price-correlation
+    container_name: price-correlation-web
     env_file:
       - .env
     environment:
-      # Override defaults here if needed
       - ENABLE_CACHE=${ENABLE_CACHE:-true}
       - ENABLE_DB_EXPORT=${ENABLE_DB_EXPORT:-true}
+      - WEB_HOST=0.0.0.0
+      - WEB_PORT=5000
+    ports:
+      - "5000:5000"
     volumes:
-      # Mount output directory for persistent results
       - ./output:/app/output
-      # Mount config directory for custom configurations
       - ./config:/app/config:ro
     # Use host network to access Redis and TimescaleDB on host machine
-    network_mode: host
-    # Restart policy
-    restart: "no"
+    # Comment out 'ports' above if using network_mode: host
+    # network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/pipeline/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 # Usage:
 #
-# Build and run one-shot (default - runs full pipeline):
-#   docker-compose up --build
+# Start web server (default):
+#   docker-compose up -d
+#   Open http://localhost:5000
 #
-# Run interactive CLI:
-#   docker-compose run price-correlation python cli.py
+# View logs:
+#   docker-compose logs -f web
 #
-# Build only:
-#   docker-compose build
+# Stop:
+#   docker-compose down
 #
-# Run with custom command:
-#   docker-compose run price-correlation python -c "from price_correlation.pipeline import run_sample_pipeline; run_sample_pipeline()"
+# Run interactive CLI instead:
+#   docker-compose run --rm web python cli.py
+#
+# Run one-shot pipeline:
+#   docker-compose run --rm web python -c "from price_correlation.pipeline import run_pipeline; run_pipeline()"
+#
+# Rebuild after code changes:
+#   docker-compose up -d --build

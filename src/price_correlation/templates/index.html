@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Stock Clustering{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+        <div class="flex space-x-3">
+            <button id="clear-cache-btn" class="btn-secondary">Clear Cache</button>
+            <button id="run-pipeline-btn" class="btn-primary">Run Pipeline</button>
+        </div>
+    </div>
+
+    <!-- Pipeline Status Card -->
+    <div id="pipeline-status-card" class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Pipeline Status</h2>
+        <div id="pipeline-status" class="flex items-center space-x-4">
+            <span class="status-dot status-green"></span>
+            <span class="text-gray-600">Ready</span>
+        </div>
+        <div id="pipeline-error" class="hidden mt-4 p-4 bg-red-50 text-red-700 rounded-lg"></div>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-sm text-gray-500 uppercase tracking-wide">Total Stocks</div>
+            <div id="stat-stocks" class="text-3xl font-bold text-gray-900 mt-2">-</div>
+        </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-sm text-gray-500 uppercase tracking-wide">Clusters</div>
+            <div id="stat-clusters" class="text-3xl font-bold text-blue-600 mt-2">-</div>
+        </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-sm text-gray-500 uppercase tracking-wide">Silhouette Score</div>
+            <div id="stat-silhouette" class="text-3xl font-bold text-green-600 mt-2">-</div>
+        </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="text-sm text-gray-500 uppercase tracking-wide">Last Run</div>
+            <div id="stat-lastrun" class="text-xl font-semibold text-gray-900 mt-2">-</div>
+        </div>
+    </div>
+
+    <!-- Two Column Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Recent Runs -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Recent Runs</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full table-hover">
+                    <thead>
+                        <tr class="text-left text-xs text-gray-500 uppercase border-b">
+                            <th class="pb-3">Date</th>
+                            <th class="pb-3">Stocks</th>
+                            <th class="pb-3">Clusters</th>
+                            <th class="pb-3">Score</th>
+                        </tr>
+                    </thead>
+                    <tbody id="runs-table" class="divide-y divide-gray-100">
+                        <tr><td colspan="4" class="py-4 text-center text-gray-400">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Top Correlations -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Top Correlations</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full table-hover">
+                    <thead>
+                        <tr class="text-left text-xs text-gray-500 uppercase border-b">
+                            <th class="pb-3">Pair</th>
+                            <th class="pb-3 text-right">Correlation</th>
+                        </tr>
+                    </thead>
+                    <tbody id="correlations-table" class="divide-y divide-gray-100">
+                        <tr><td colspan="2" class="py-4 text-center text-gray-400">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Market Overview -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Market Overview</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Sector Performance -->
+            <div>
+                <h3 class="text-sm font-medium text-gray-700 mb-3">Sector Performance</h3>
+                <div id="sector-performance" class="space-y-2">
+                    <div class="text-gray-400 text-sm">Loading...</div>
+                </div>
+            </div>
+            <!-- Market Movers -->
+            <div>
+                <h3 class="text-sm font-medium text-gray-700 mb-3">Market Movers</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <h4 class="text-xs text-green-600 font-medium mb-2">Top Gainers</h4>
+                        <div id="market-gainers" class="space-y-1 text-sm">
+                            <div class="text-gray-400">Loading...</div>
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="text-xs text-red-600 font-medium mb-2">Top Losers</h4>
+                        <div id="market-losers" class="space-y-1 text-sm">
+                            <div class="text-gray-400">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Run Pipeline Modal -->
+<div id="run-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+        <h2 class="text-xl font-bold text-gray-900 mb-4">Run Pipeline</h2>
+        <form id="run-form" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Mode</label>
+                <select id="run-mode" class="w-full border rounded-lg px-3 py-2">
+                    <option value="sample">Sample (50 stocks)</option>
+                    <option value="full">Full Universe</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Days of History</label>
+                <input type="number" id="run-days" value="180" class="w-full border rounded-lg px-3 py-2">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Clustering Method</label>
+                <select id="run-method" class="w-full border rounded-lg px-3 py-2">
+                    <option value="hierarchical">Hierarchical</option>
+                    <option value="dbscan">DBSCAN</option>
+                </select>
+            </div>
+            <div class="flex justify-end space-x-3 mt-6">
+                <button type="button" id="cancel-run" class="btn-secondary">Cancel</button>
+                <button type="submit" class="btn-primary">Start Pipeline</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Load dashboard data
+    async function loadDashboard() {
+        // Load runs
+        try {
+            const res = await fetch('/api/runs');
+            const runs = await res.json();
+            if (runs.length > 0) {
+                const latest = runs[0];
+                document.getElementById('stat-stocks').textContent = latest.n_stocks_processed || '-';
+                document.getElementById('stat-clusters').textContent = latest.n_clusters || '-';
+                document.getElementById('stat-silhouette').textContent = latest.silhouette_score ? latest.silhouette_score.toFixed(3) : '-';
+                document.getElementById('stat-lastrun').textContent = latest.analysis_date || '-';
+
+                // Runs table
+                const tbody = document.getElementById('runs-table');
+                tbody.innerHTML = runs.slice(0, 10).map(run => `
+                    <tr>
+                        <td class="py-3 text-sm">${run.analysis_date}</td>
+                        <td class="py-3 text-sm">${run.n_stocks_processed}</td>
+                        <td class="py-3 text-sm">${run.n_clusters}</td>
+                        <td class="py-3 text-sm">${run.silhouette_score ? run.silhouette_score.toFixed(3) : '-'}</td>
+                    </tr>
+                `).join('');
+            }
+        } catch (e) {
+            console.error('Error loading runs:', e);
+        }
+
+        // Load correlations
+        try {
+            const res = await fetch('/api/correlations?limit=10');
+            const data = await res.json();
+            const tbody = document.getElementById('correlations-table');
+            if (data.pairs && data.pairs.length > 0) {
+                tbody.innerHTML = data.pairs.map(p => `
+                    <tr>
+                        <td class="py-3">
+                            <a href="/stock/${p.ticker_a}" class="text-blue-600 hover:underline">${p.ticker_a}</a>
+                            <span class="text-gray-400 mx-1">↔</span>
+                            <a href="/stock/${p.ticker_b}" class="text-blue-600 hover:underline">${p.ticker_b}</a>
+                        </td>
+                        <td class="py-3 text-right font-mono">${p.correlation.toFixed(4)}</td>
+                    </tr>
+                `).join('');
+            } else {
+                tbody.innerHTML = '<tr><td colspan="2" class="py-4 text-center text-gray-400">No data available</td></tr>';
+            }
+        } catch (e) {
+            console.error('Error loading correlations:', e);
+        }
+
+        // Load sector performance
+        try {
+            const res = await fetch('/api/fmp/sector-performance');
+            const sectors = await res.json();
+            const container = document.getElementById('sector-performance');
+            if (sectors.length > 0) {
+                container.innerHTML = sectors.map(s => {
+                    const pct = parseFloat(s.changesPercentage);
+                    const color = pct >= 0 ? 'text-green-600' : 'text-red-600';
+                    const width = Math.min(Math.abs(pct) * 10, 100);
+                    const bgColor = pct >= 0 ? 'bg-green-200' : 'bg-red-200';
+                    return `
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="w-32 truncate">${s.sector}</span>
+                            <div class="flex-1 mx-2 h-2 bg-gray-100 rounded">
+                                <div class="${bgColor} h-full rounded" style="width: ${width}%"></div>
+                            </div>
+                            <span class="${color} font-mono w-16 text-right">${formatPercent(pct)}</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+        } catch (e) {
+            console.error('Error loading sectors:', e);
+        }
+
+        // Load market movers
+        try {
+            const res = await fetch('/api/fmp/market-movers');
+            const data = await res.json();
+
+            const gainersEl = document.getElementById('market-gainers');
+            if (data.gainers && data.gainers.length > 0) {
+                gainersEl.innerHTML = data.gainers.slice(0, 5).map(s => `
+                    <div class="flex justify-between">
+                        <a href="/stock/${s.symbol}" class="text-blue-600 hover:underline">${s.symbol}</a>
+                        <span class="text-green-600">${formatPercent(s.changesPercentage)}</span>
+                    </div>
+                `).join('');
+            }
+
+            const losersEl = document.getElementById('market-losers');
+            if (data.losers && data.losers.length > 0) {
+                losersEl.innerHTML = data.losers.slice(0, 5).map(s => `
+                    <div class="flex justify-between">
+                        <a href="/stock/${s.symbol}" class="text-blue-600 hover:underline">${s.symbol}</a>
+                        <span class="text-red-600">${formatPercent(s.changesPercentage)}</span>
+                    </div>
+                `).join('');
+            }
+        } catch (e) {
+            console.error('Error loading movers:', e);
+        }
+    }
+
+    // Pipeline status polling
+    async function checkPipelineStatus() {
+        try {
+            const res = await fetch('/api/pipeline/status');
+            const status = await res.json();
+            const statusEl = document.getElementById('pipeline-status');
+            const errorEl = document.getElementById('pipeline-error');
+
+            if (status.running) {
+                statusEl.innerHTML = '<span class="status-dot status-yellow"></span><span class="text-gray-600">Running...</span>';
+                document.getElementById('run-pipeline-btn').disabled = true;
+                document.getElementById('run-pipeline-btn').textContent = 'Running...';
+            } else {
+                statusEl.innerHTML = '<span class="status-dot status-green"></span><span class="text-gray-600">Ready</span>';
+                document.getElementById('run-pipeline-btn').disabled = false;
+                document.getElementById('run-pipeline-btn').textContent = 'Run Pipeline';
+
+                if (status.error) {
+                    errorEl.textContent = status.error;
+                    errorEl.classList.remove('hidden');
+                } else {
+                    errorEl.classList.add('hidden');
+                }
+            }
+        } catch (e) {
+            console.error('Error checking status:', e);
+        }
+    }
+
+    // Run pipeline modal
+    document.getElementById('run-pipeline-btn').addEventListener('click', () => {
+        document.getElementById('run-modal').classList.remove('hidden');
+    });
+
+    document.getElementById('cancel-run').addEventListener('click', () => {
+        document.getElementById('run-modal').classList.add('hidden');
+    });
+
+    document.getElementById('run-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const mode = document.getElementById('run-mode').value;
+        const days = parseInt(document.getElementById('run-days').value);
+        const method = document.getElementById('run-method').value;
+
+        try {
+            await fetch('/api/pipeline/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    use_sample: mode === 'sample',
+                    sample_size: 50,
+                    days: days,
+                    method: method
+                })
+            });
+            document.getElementById('run-modal').classList.add('hidden');
+            checkPipelineStatus();
+        } catch (e) {
+            alert('Failed to start pipeline: ' + e.message);
+        }
+    });
+
+    // Clear cache
+    document.getElementById('clear-cache-btn').addEventListener('click', async () => {
+        if (confirm('Clear all cached data?')) {
+            try {
+                const res = await fetch('/api/cache/clear', { method: 'POST' });
+                const data = await res.json();
+                alert(data.message || 'Cache cleared');
+            } catch (e) {
+                alert('Failed to clear cache: ' + e.message);
+            }
+        }
+    });
+
+    // Initialize
+    loadDashboard();
+    checkPipelineStatus();
+    setInterval(checkPipelineStatus, 5000);
+</script>
+{% endblock %}

@@ -1,5 +1,5 @@
 # Stock Clustering Pipeline - Docker Image
-# Supports both one-shot and interactive modes
+# Supports web server, one-shot, and interactive CLI modes
 
 FROM python:3.11-slim
 
@@ -37,7 +37,13 @@ ENV PYTHONPATH=/app/src
 # Default environment variables (can be overridden)
 ENV ENABLE_CACHE=true
 ENV ENABLE_DB_EXPORT=true
+ENV WEB_HOST=0.0.0.0
+ENV WEB_PORT=5000
 
-# Default command: run full pipeline (one-shot mode)
-# For interactive mode: docker run -it ... python cli.py
-CMD ["python", "-c", "from price_correlation.pipeline import run_pipeline; run_pipeline()"]
+# Expose web port
+EXPOSE 5000
+
+# Default command: run web server
+# For CLI: docker run -it ... python cli.py
+# For one-shot pipeline: docker run ... python -c "from price_correlation.pipeline import run_pipeline; run_pipeline()"
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "4", "--timeout", "300", "price_correlation.web:app"]

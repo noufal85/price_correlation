@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% block title %}Charts - Stock Clustering{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <h1 class="text-2xl font-bold text-gray-900">Analytics Charts</h1>
+
+    <!-- Charts Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Cluster Sizes -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Cluster Size Distribution</h2>
+            <div class="h-80">
+                <canvas id="cluster-size-chart"></canvas>
+            </div>
+        </div>
+
+        <!-- Correlation Distribution -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Correlation Distribution</h2>
+            <div class="h-80">
+                <canvas id="corr-dist-chart"></canvas>
+            </div>
+        </div>
+
+        <!-- Silhouette History -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Silhouette Score History</h2>
+            <div class="h-80">
+                <canvas id="silhouette-chart"></canvas>
+            </div>
+        </div>
+
+        <!-- Cluster Count History -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Cluster Count Over Time</h2>
+            <div class="h-80">
+                <canvas id="clusters-history-chart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sector Performance -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Sector Performance</h2>
+        <div class="h-64">
+            <canvas id="sector-chart"></canvas>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Load cluster sizes chart
+    async function loadClusterSizes() {
+        try {
+            const res = await fetch('/api/charts/cluster-sizes');
+            const data = await res.json();
+
+            const ctx = document.getElementById('cluster-size-chart').getContext('2d');
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        data: data.data,
+                        backgroundColor: [
+                            'rgba(59, 130, 246, 0.8)',
+                            'rgba(16, 185, 129, 0.8)',
+                            'rgba(245, 158, 11, 0.8)',
+                            'rgba(239, 68, 68, 0.8)',
+                            'rgba(139, 92, 246, 0.8)',
+                            'rgba(236, 72, 153, 0.8)',
+                            'rgba(6, 182, 212, 0.8)',
+                            'rgba(132, 204, 22, 0.8)',
+                            'rgba(249, 115, 22, 0.8)',
+                            'rgba(156, 163, 175, 0.8)'
+                        ],
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                        }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Error loading cluster sizes:', e);
+        }
+    }
+
+    // Load correlation distribution
+    async function loadCorrDistribution() {
+        try {
+            const res = await fetch('/api/charts/correlation-distribution');
+            const data = await res.json();
+
+            const ctx = document.getElementById('corr-dist-chart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: 'Number of Pairs',
+                        data: data.data,
+                        backgroundColor: 'rgba(34, 197, 94, 0.6)',
+                        borderColor: 'rgba(34, 197, 94, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Error loading correlation distribution:', e);
+        }
+    }
+
+    // Load silhouette history
+    async function loadSilhouetteHistory() {
+        try {
+            const res = await fetch('/api/charts/silhouette-history');
+            const data = await res.json();
+
+            const ctx = document.getElementById('silhouette-chart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: 'Silhouette Score',
+                        data: data.silhouette,
+                        borderColor: 'rgba(59, 130, 246, 1)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 1
+                        }
+                    }
+                }
+            });
+
+            // Cluster count chart
+            const ctx2 = document.getElementById('clusters-history-chart').getContext('2d');
+            new Chart(ctx2, {
+                type: 'bar',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: 'Number of Clusters',
+                        data: data.clusters,
+                        backgroundColor: 'rgba(139, 92, 246, 0.6)',
+                        borderColor: 'rgba(139, 92, 246, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Error loading silhouette history:', e);
+        }
+    }
+
+    // Load sector performance
+    async function loadSectorPerformance() {
+        try {
+            const res = await fetch('/api/fmp/sector-performance');
+            const data = await res.json();
+
+            const sectors = data.map(s => s.sector);
+            const changes = data.map(s => parseFloat(s.changesPercentage));
+
+            const ctx = document.getElementById('sector-chart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: sectors,
+                    datasets: [{
+                        label: 'Change %',
+                        data: changes,
+                        backgroundColor: changes.map(c => c >= 0 ? 'rgba(34, 197, 94, 0.6)' : 'rgba(239, 68, 68, 0.6)'),
+                        borderColor: changes.map(c => c >= 0 ? 'rgba(34, 197, 94, 1)' : 'rgba(239, 68, 68, 1)'),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                callback: (v) => v + '%'
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Error loading sector performance:', e);
+        }
+    }
+
+    // Initialize
+    loadClusterSizes();
+    loadCorrDistribution();
+    loadSilhouetteHistory();
+    loadSectorPerformance();
+</script>
+{% endblock %}

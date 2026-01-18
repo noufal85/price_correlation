@@ -1,0 +1,345 @@
+{% extends "base.html" %}
+
+{% block title %}{{ ticker }} - Stock Clustering{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex items-center space-x-4">
+        <a href="javascript:history.back()" class="text-gray-400 hover:text-gray-600">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+        </a>
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">{{ ticker }}</h1>
+            <p id="company-name" class="text-gray-500">Loading...</p>
+        </div>
+        <div id="price-badge" class="ml-auto text-right">
+            <div id="current-price" class="text-2xl font-bold">-</div>
+            <div id="price-change" class="text-sm">-</div>
+        </div>
+    </div>
+
+    <!-- Company Info Card -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div>
+                <div class="text-sm text-gray-500">Sector</div>
+                <div id="sector" class="font-medium text-gray-900">-</div>
+            </div>
+            <div>
+                <div class="text-sm text-gray-500">Industry</div>
+                <div id="industry" class="font-medium text-gray-900">-</div>
+            </div>
+            <div>
+                <div class="text-sm text-gray-500">Market Cap</div>
+                <div id="market-cap" class="font-medium text-gray-900">-</div>
+            </div>
+            <div>
+                <div class="text-sm text-gray-500">Exchange</div>
+                <div id="exchange" class="font-medium text-gray-900">-</div>
+            </div>
+        </div>
+        <div class="mt-4 pt-4 border-t">
+            <p id="description" class="text-sm text-gray-600 line-clamp-3">-</p>
+        </div>
+    </div>
+
+    <!-- Two Column Layout -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Price Chart -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Price History (30 Days)</h2>
+            <div class="h-64">
+                <canvas id="price-chart"></canvas>
+            </div>
+        </div>
+
+        <!-- Cluster Info -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Cluster Information</h2>
+            <div id="cluster-info" class="space-y-3">
+                <div class="text-gray-400">Loading cluster data...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Correlations and Peers -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Correlated Stocks -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Most Correlated Stocks</h2>
+            <div id="correlations-list" class="space-y-2">
+                <div class="text-gray-400">Loading...</div>
+            </div>
+        </div>
+
+        <!-- FMP Peers -->
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Similar Companies (FMP)</h2>
+            <div id="peers-list" class="space-y-2">
+                <div class="text-gray-400">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Financial Ratios -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Key Financial Ratios</h2>
+        <div id="ratios-grid" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div class="text-gray-400">Loading...</div>
+        </div>
+    </div>
+
+    <!-- Recent News -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Recent News</h2>
+        <div id="news-list" class="space-y-4">
+            <div class="text-gray-400">Loading...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const ticker = '{{ ticker }}';
+    let priceChart = null;
+
+    // Load company profile
+    async function loadProfile() {
+        try {
+            const res = await fetch(`/api/fmp/profile/${ticker}`);
+            const data = await res.json();
+
+            if (data.companyName) {
+                document.getElementById('company-name').textContent = data.companyName;
+                document.getElementById('sector').textContent = data.sector || '-';
+                document.getElementById('industry').textContent = data.industry || '-';
+                document.getElementById('market-cap').textContent = data.mktCap ? formatNumber(data.mktCap) : '-';
+                document.getElementById('exchange').textContent = data.exchangeShortName || data.exchange || '-';
+                document.getElementById('description').textContent = data.description || '-';
+            }
+        } catch (e) {
+            console.error('Error loading profile:', e);
+        }
+    }
+
+    // Load quote
+    async function loadQuote() {
+        try {
+            const res = await fetch(`/api/fmp/quote/${ticker}`);
+            const data = await res.json();
+
+            if (data.price) {
+                document.getElementById('current-price').textContent = '$' + data.price.toFixed(2);
+
+                const change = data.change || 0;
+                const changePct = data.changesPercentage || 0;
+                const changeEl = document.getElementById('price-change');
+                const isPositive = change >= 0;
+
+                changeEl.textContent = `${isPositive ? '+' : ''}${change.toFixed(2)} (${isPositive ? '+' : ''}${changePct.toFixed(2)}%)`;
+                changeEl.className = `text-sm ${isPositive ? 'text-green-600' : 'text-red-600'}`;
+            }
+        } catch (e) {
+            console.error('Error loading quote:', e);
+        }
+    }
+
+    // Load price chart
+    async function loadPriceChart() {
+        try {
+            const res = await fetch(`/api/fmp/historical/${ticker}?days=30`);
+            const data = await res.json();
+
+            if (data.historical && data.historical.length > 0) {
+                const reversed = data.historical.reverse();
+                const labels = reversed.map(d => d.date);
+                const prices = reversed.map(d => d.close);
+
+                const ctx = document.getElementById('price-chart').getContext('2d');
+                if (priceChart) priceChart.destroy();
+
+                priceChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Close Price',
+                            data: prices,
+                            borderColor: 'rgba(59, 130, 246, 1)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            fill: true,
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            x: {
+                                display: true,
+                                ticks: { maxTicksLimit: 6 }
+                            }
+                        }
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('Error loading price chart:', e);
+        }
+    }
+
+    // Load cluster history
+    async function loadClusterInfo() {
+        try {
+            const res = await fetch(`/api/stock/${ticker}/cluster-history`);
+            const data = await res.json();
+
+            const container = document.getElementById('cluster-info');
+            if (data.history && data.history.length > 0) {
+                const latest = data.history[0];
+                container.innerHTML = `
+                    <div class="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
+                        <span class="text-sm text-gray-600">Current Cluster</span>
+                        <span class="text-xl font-bold text-blue-600">${latest.cluster_id === -1 ? 'Noise' : 'Cluster ' + latest.cluster_id}</span>
+                    </div>
+                    <div class="text-sm text-gray-500">As of ${latest.date}</div>
+                    <h3 class="text-sm font-medium text-gray-700 mt-4">Cluster History</h3>
+                    <div class="space-y-1">
+                        ${data.history.slice(0, 10).map(h => `
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-500">${h.date}</span>
+                                <span class="font-mono">${h.cluster_id === -1 ? 'Noise' : 'Cluster ' + h.cluster_id}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            } else {
+                container.innerHTML = '<div class="text-gray-400">No cluster data available</div>';
+            }
+        } catch (e) {
+            console.error('Error loading cluster info:', e);
+        }
+    }
+
+    // Load correlations
+    async function loadCorrelations() {
+        try {
+            const res = await fetch(`/api/stock/${ticker}/correlations?limit=15`);
+            const data = await res.json();
+
+            const container = document.getElementById('correlations-list');
+            if (data.correlations && data.correlations.length > 0) {
+                container.innerHTML = data.correlations.map(c => `
+                    <div class="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+                        <a href="/stock/${c.ticker}" class="text-blue-600 hover:underline font-medium">${c.ticker}</a>
+                        <div class="flex items-center space-x-2">
+                            <div class="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div class="bg-green-500 h-full" style="width: ${(c.correlation - 0.7) * 333}%"></div>
+                            </div>
+                            <span class="font-mono text-sm">${c.correlation.toFixed(4)}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                container.innerHTML = '<div class="text-gray-400">No correlation data</div>';
+            }
+        } catch (e) {
+            console.error('Error loading correlations:', e);
+        }
+    }
+
+    // Load peers from FMP
+    async function loadPeers() {
+        try {
+            const res = await fetch(`/api/fmp/peers/${ticker}`);
+            const data = await res.json();
+
+            const container = document.getElementById('peers-list');
+            if (data.peersList && data.peersList.length > 0) {
+                container.innerHTML = data.peersList.slice(0, 10).map(peer => `
+                    <div class="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+                        <a href="/stock/${peer}" class="text-blue-600 hover:underline font-medium">${peer}</a>
+                    </div>
+                `).join('');
+            } else {
+                container.innerHTML = '<div class="text-gray-400">No peer data available</div>';
+            }
+        } catch (e) {
+            console.error('Error loading peers:', e);
+        }
+    }
+
+    // Load ratios
+    async function loadRatios() {
+        try {
+            const res = await fetch(`/api/fmp/ratios/${ticker}`);
+            const data = await res.json();
+
+            const container = document.getElementById('ratios-grid');
+            const ratios = [
+                { label: 'P/E Ratio', value: data.peRatioTTM },
+                { label: 'P/B Ratio', value: data.priceToBookRatioTTM },
+                { label: 'ROE', value: data.returnOnEquityTTM, pct: true },
+                { label: 'ROA', value: data.returnOnAssetsTTM, pct: true },
+                { label: 'Debt/Equity', value: data.debtEquityRatioTTM },
+                { label: 'Current Ratio', value: data.currentRatioTTM },
+            ];
+
+            container.innerHTML = ratios.map(r => `
+                <div class="bg-gray-50 rounded-lg p-3">
+                    <div class="text-xs text-gray-500">${r.label}</div>
+                    <div class="text-lg font-semibold text-gray-900">
+                        ${r.value ? (r.pct ? (r.value * 100).toFixed(1) + '%' : r.value.toFixed(2)) : '-'}
+                    </div>
+                </div>
+            `).join('');
+        } catch (e) {
+            console.error('Error loading ratios:', e);
+        }
+    }
+
+    // Load news
+    async function loadNews() {
+        try {
+            const res = await fetch(`/api/fmp/news/${ticker}?limit=5`);
+            const news = await res.json();
+
+            const container = document.getElementById('news-list');
+            if (news && news.length > 0) {
+                container.innerHTML = news.map(n => `
+                    <div class="border-b pb-3 last:border-0">
+                        <a href="${n.url}" target="_blank" class="text-blue-600 hover:underline font-medium">
+                            ${n.title}
+                        </a>
+                        <div class="text-sm text-gray-500 mt-1">
+                            ${n.site} - ${new Date(n.publishedDate).toLocaleDateString()}
+                        </div>
+                        <p class="text-sm text-gray-600 mt-1 line-clamp-2">${n.text || ''}</p>
+                    </div>
+                `).join('');
+            } else {
+                container.innerHTML = '<div class="text-gray-400">No news available</div>';
+            }
+        } catch (e) {
+            console.error('Error loading news:', e);
+        }
+    }
+
+    // Initialize
+    loadProfile();
+    loadQuote();
+    loadPriceChart();
+    loadClusterInfo();
+    loadCorrelations();
+    loadPeers();
+    loadRatios();
+    loadNews();
+</script>
+{% endblock %}

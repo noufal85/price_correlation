@@ -26,7 +26,52 @@ Stock clustering groups stocks that move together in the market. When two stocks
 - **TimescaleDB Integration**: Store clustering results in TimescaleDB for historical analysis
 - **Redis Caching**: Cache API responses to avoid repeated fetches
 - **Docker Support**: Run the pipeline in a container (one-shot or interactive)
+- **Web Interface**: Browser-based dashboard to trigger runs, view results, and explore data
 - **Visualizations**: t-SNE 2D cluster plots
+
+## Web Interface (Recommended)
+
+The easiest way to use the system is via the web interface. Start with Docker:
+
+```bash
+# Clone and setup
+git clone git@github.com:noufal85/price_correlation.git
+cd price_correlation
+
+# Configure environment
+cp .env.example .env
+# Edit .env and add your FMP_API_KEY
+
+# Start web server
+docker-compose up -d
+
+# Open in browser
+open http://localhost:5000
+```
+
+### Web Features
+
+| Page | Description |
+|------|-------------|
+| **Dashboard** | Pipeline status, run trigger, market overview, sector performance |
+| **Clusters** | View cluster assignments, member stocks, size distribution |
+| **Correlations** | Browse correlated pairs, filter by threshold |
+| **Stock Detail** | Company profile, price chart, news, financial ratios (from FMP) |
+| **Charts** | Cluster sizes, correlation distribution, silhouette history |
+
+### API Endpoints
+
+The web server exposes REST APIs for programmatic access:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/runs` | List of analysis runs |
+| `GET /api/clusters` | Current cluster assignments |
+| `GET /api/correlations` | Correlated pairs |
+| `POST /api/pipeline/run` | Trigger pipeline run |
+| `GET /api/fmp/profile/<ticker>` | Company profile from FMP |
+| `GET /api/fmp/quote/<ticker>` | Real-time quote from FMP |
+| `GET /api/fmp/news/<ticker>` | Stock news from FMP |
 
 ## Quick Start
 
@@ -329,7 +374,9 @@ price_correlation/
 │   ├── export.py          # JSON/Parquet output
 │   ├── pipeline.py        # Main orchestrator
 │   ├── cache.py           # Redis caching layer
-│   └── db.py              # TimescaleDB client
+│   ├── db.py              # TimescaleDB client
+│   ├── web.py             # Flask web server
+│   └── templates/         # HTML templates for web UI
 ├── tests/
 │   ├── test_integration.py
 │   ├── test_cache_integration.py
