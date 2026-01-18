@@ -23,6 +23,9 @@ Stock clustering groups stocks that move together in the market. When two stocks
 - **Multiple Data Sources**: FMP API (full universe) or yfinance (quick samples)
 - **ML Clustering**: DBSCAN and Hierarchical clustering with auto-tuning
 - **Export Formats**: JSON and Parquet with DuckDB-ready schemas
+- **TimescaleDB Integration**: Store clustering results in TimescaleDB for historical analysis
+- **Redis Caching**: Cache API responses to avoid repeated fetches
+- **Docker Support**: Run the pipeline in a container (one-shot or interactive)
 - **Visualizations**: t-SNE 2D cluster plots
 
 ## Quick Start
@@ -300,12 +303,18 @@ deactivate
 price_correlation/
 ├── cli.py                 # Interactive menu CLI
 ├── pyproject.toml         # Package configuration
+├── Dockerfile             # Docker container definition
+├── docker-compose.yml     # Docker Compose configuration
+├── .dockerignore          # Docker build exclusions
+├── .env.example           # Environment template
 ├── README.md              # This file
 ├── CLAUDE.md              # Development instructions
 ├── config/
 │   ├── default.yaml       # Default config (full universe)
 │   ├── sample_filtered.yaml  # Large cap + sectors example
 │   └── sample_smallcap.yaml  # Small cap example
+├── scripts/
+│   └── init_timescaledb.sql  # Database schema
 ├── docs/
 │   ├── DESIGN.md          # System architecture
 │   └── tasks/             # Task breakdown
@@ -318,9 +327,13 @@ price_correlation/
 │   ├── clustering.py      # DBSCAN, hierarchical
 │   ├── validation.py      # Quality metrics
 │   ├── export.py          # JSON/Parquet output
-│   └── pipeline.py        # Main orchestrator
+│   ├── pipeline.py        # Main orchestrator
+│   ├── cache.py           # Redis caching layer
+│   └── db.py              # TimescaleDB client
 ├── tests/
-│   └── test_integration.py
+│   ├── test_integration.py
+│   ├── test_cache_integration.py
+│   └── test_db_integration.py
 └── output/                # Generated results
 ```
 
@@ -382,11 +395,178 @@ filters:
 - numpy, pandas, scipy, scikit-learn
 - pyarrow (Parquet support)
 - yfinance (price data)
+- redis (caching)
+- psycopg2-binary (TimescaleDB)
 
 **Optional:**
 - matplotlib (visualization)
 - statsmodels (cointegration tests)
 - tslearn (DTW clustering)
+
+## Docker Usage
+
+Run the pipeline in a Docker container with automatic Redis caching and TimescaleDB export.
+
+### Prerequisites
+
+- Docker and Docker Compose installed
+- Redis and TimescaleDB running (optional, for caching and DB export)
+
+### Build and Run
+
+```bash
+# Copy environment template and configure
+cp .env.example .env
+# Edit .env with your FMP_API_KEY and service addresses
+
+# Build the Docker image
+docker build -t price-correlation:latest .
+
+# One-shot mode (runs full pipeline)
+docker run --rm \
+    --env-file .env \
+    -v $(pwd)/output:/app/output \
+    --network=host \
+    price-correlation:latest
+
+# Interactive CLI mode
+docker run -it --rm \
+    --env-file .env \
+    -v $(pwd)/output:/app/output \
+    --network=host \
+    price-correlation:latest \
+    python cli.py
+```
+
+### Docker Compose
+
+```bash
+# One-shot mode
+docker-compose up --build
+
+# Interactive mode
+docker-compose run price-correlation python cli.py
+```
+
+## Redis Caching
+
+Redis caching reduces API calls by storing fetched data.
+
+### Configuration
+
+Set in `.env` or environment:
+
+```bash
+REDIS_HOST=192.168.68.88
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=           # Leave empty if no password
+ENABLE_CACHE=true         # Set to false to disable
+```
+
+### Cache Behavior
+
+| Data | TTL | Description |
+|------|-----|-------------|
+| Universe | 24 hours | Stock ticker lists |
+| Prices | 6 hours | Historical price data |
+
+### CLI Commands
+
+- Press `C` in the main menu to clear all cache entries
+- Toggle caching in Settings menu (option `B`)
+
+### Graceful Degradation
+
+If Redis is unavailable, the pipeline continues without caching - it just fetches from APIs directly.
+
+## TimescaleDB Integration
+
+Store clustering results in TimescaleDB for historical analysis and querying.
+
+### Configuration
+
+Set in `.env` or environment:
+
+```bash
+TIMESCALE_HOST=192.168.68.88
+TIMESCALE_PORT=5432
+TIMESCALE_DB=timescaledb
+TIMESCALE_USER=postgres
+TIMESCALE_PASSWORD=password
+ENABLE_DB_EXPORT=true     # Set to false to disable
+```
+
+### Database Schema
+
+Initialize the database with the provided schema:
+
+```bash
+psql -h 192.168.68.88 -U postgres -d timescaledb -f scripts/init_timescaledb.sql
+```
+
+### Tables
+
+| Table | Description |
+|-------|-------------|
+| `equity_clusters` | Cluster assignments per analysis run (hypertable) |
+| `pair_correlations` | Highly correlated pairs per run (hypertable) |
+| `analysis_runs` | Pipeline execution metadata |
+
+### Sample Queries
+
+```sql
+-- Latest cluster for AAPL
+SELECT cluster_id FROM equity_clusters
+WHERE ticker = 'AAPL'
+ORDER BY analysis_date DESC LIMIT 1;
+
+-- All stocks in same cluster as AAPL (latest run)
+WITH latest AS (
+    SELECT cluster_id, analysis_date FROM equity_clusters
+    WHERE ticker = 'AAPL' ORDER BY analysis_date DESC LIMIT 1
+)
+SELECT ec.ticker FROM equity_clusters ec
+JOIN latest l ON ec.cluster_id = l.cluster_id AND ec.analysis_date = l.analysis_date;
+
+-- Top correlated pairs (latest run)
+SELECT ticker_a, ticker_b, correlation
+FROM pair_correlations
+WHERE analysis_date = (SELECT MAX(analysis_date) FROM analysis_runs)
+ORDER BY correlation DESC LIMIT 10;
+
+-- Cluster history for a ticker
+SELECT analysis_date, cluster_id FROM equity_clusters
+WHERE ticker = 'AAPL' ORDER BY analysis_date;
+```
+
+### CLI Commands
+
+- Press `D` in the main menu to manually trigger database export
+- Toggle DB export in Settings menu (option `C`)
+
+### Graceful Degradation
+
+If TimescaleDB is unavailable, the pipeline logs a warning and continues - results are still exported to files.
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and configure:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FMP_API_KEY` | - | Financial Modeling Prep API key |
+| `REDIS_HOST` | 192.168.68.88 | Redis server host |
+| `REDIS_PORT` | 6379 | Redis server port |
+| `REDIS_DB` | 0 | Redis database number |
+| `REDIS_PASSWORD` | - | Redis password (optional) |
+| `TIMESCALE_HOST` | 192.168.68.88 | TimescaleDB host |
+| `TIMESCALE_PORT` | 5432 | TimescaleDB port |
+| `TIMESCALE_DB` | timescaledb | TimescaleDB database name |
+| `TIMESCALE_USER` | postgres | TimescaleDB username |
+| `TIMESCALE_PASSWORD` | password | TimescaleDB password |
+| `ENABLE_CACHE` | true | Enable/disable Redis caching |
+| `ENABLE_DB_EXPORT` | true | Enable/disable TimescaleDB export |
 
 ## License
 

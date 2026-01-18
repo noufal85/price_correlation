@@ -20,6 +20,7 @@ import os
 # Load environment variables from .env file
 from dotenv import load_dotenv
 load_dotenv()
+
 import pickle
 import sys
 import time
@@ -220,6 +221,8 @@ class Config:
         self.visualize = True
         self.export_json = True  # Export JSON format
         self.export_parquet = True  # Export Parquet format
+        self.enable_cache = os.environ.get("ENABLE_CACHE", "true").lower() in ("true", "1", "yes")
+        self.enable_db_export = os.environ.get("ENABLE_DB_EXPORT", "true").lower() in ("true", "1", "yes")
 
 
 # ============================================================================
@@ -915,6 +918,19 @@ def print_menu(config: Config, state: PipelineState) -> None:
     """Print the interactive menu."""
     status = state.get_status()
 
+    # Get cache and DB status
+    try:
+        from price_correlation.cache import get_cache_stats
+        cache_stats = get_cache_stats()
+    except Exception:
+        cache_stats = {"enabled": False, "connected": False}
+
+    try:
+        from price_correlation.db import get_db_stats
+        db_stats = get_db_stats()
+    except Exception:
+        db_stats = {"enabled": False, "connected": False}
+
     print()
     print(c("=" * 60, Colors.CYAN))
     print(c("       STOCK CLUSTERING PIPELINE - INTERACTIVE MENU", Colors.BOLD + Colors.CYAN))
@@ -937,6 +953,12 @@ def print_menu(config: Config, state: PipelineState) -> None:
     print(f"    Days:        {c(str(config.days), Colors.GREEN)}")
     print(f"    Method:      {c(config.method, Colors.GREEN)}")
     print(f"    Output:      {c(config.output_dir, Colors.GREEN)}")
+
+    # Cache and DB status
+    cache_status = c("Connected", Colors.GREEN) if cache_stats.get("connected") else c("Disconnected", Colors.RED) if cache_stats.get("enabled") else c("Disabled", Colors.DIM)
+    db_status = c("Connected", Colors.GREEN) if db_stats.get("connected") else c("Disconnected", Colors.RED) if db_stats.get("enabled") else c("Disabled", Colors.DIM)
+    print(f"    Cache:       {cache_status}")
+    print(f"    Database:    {db_status}")
     print()
 
     # Status indicators
@@ -961,6 +983,12 @@ def print_menu(config: Config, state: PipelineState) -> None:
     print(f"    {c('7', Colors.YELLOW)}     Run Full Pipeline    - Execute all steps (1-6)")
     print(f"    {c('8', Colors.YELLOW)}     Settings             - Change configuration")
     print(f"    {c('9', Colors.YELLOW)}     Clear State          - Reset pipeline state")
+    print()
+    print(c("  Cache/Database:", Colors.BOLD))
+    print()
+    print(f"    {c('C', Colors.YELLOW)}     Clear Cache          - Clear Redis cache")
+    print(f"    {c('D', Colors.YELLOW)}     Export to Database   - Manual DB export")
+    print()
     print(f"    {c('0', Colors.YELLOW)}     Exit")
     print()
     print(c("=" * 60, Colors.CYAN))
@@ -993,6 +1021,10 @@ def print_settings_menu(config: Config) -> None:
     print(c("  Export Options:", Colors.DIM))
     print(f"    {c('9', Colors.YELLOW)}  Export JSON        [{c('Yes' if config.export_json else 'No', Colors.GREEN)}]")
     print(f"    {c('A', Colors.YELLOW)}  Export Parquet     [{c('Yes' if config.export_parquet else 'No', Colors.GREEN)}]")
+    print()
+    print(c("  Cache/Database:", Colors.DIM))
+    print(f"    {c('B', Colors.YELLOW)}  Enable Cache       [{c('Yes' if config.enable_cache else 'No', Colors.GREEN)}]")
+    print(f"    {c('C', Colors.YELLOW)}  Enable DB Export   [{c('Yes' if config.enable_db_export else 'No', Colors.GREEN)}]")
     print()
     print(f"    {c('0', Colors.YELLOW)}  Back to main menu")
     print()
@@ -1135,6 +1167,16 @@ def handle_settings(config: Config) -> None:
             config.export_parquet = not config.export_parquet
             status = "enabled" if config.export_parquet else "disabled"
             print_success(f"Parquet export {status}")
+        elif choice.upper() == "B":
+            config.enable_cache = not config.enable_cache
+            os.environ["ENABLE_CACHE"] = "true" if config.enable_cache else "false"
+            status = "enabled" if config.enable_cache else "disabled"
+            print_success(f"Cache {status}")
+        elif choice.upper() == "C":
+            config.enable_db_export = not config.enable_db_export
+            os.environ["ENABLE_DB_EXPORT"] = "true" if config.enable_db_export else "false"
+            status = "enabled" if config.enable_db_export else "disabled"
+            print_success(f"DB export {status}")
 
 
 def interactive_menu():
@@ -1188,8 +1230,70 @@ def interactive_menu():
                 else:
                     print("  Cancelled")
                 input(c("\n  Press Enter to continue...", Colors.DIM))
+            elif choice.upper() == "C":
+                # Clear cache
+                print_header("CLEAR CACHE")
+                try:
+                    from price_correlation.cache import clear_cache, get_cache_stats
+                    stats = get_cache_stats()
+                    if not stats.get("enabled"):
+                        print_warning("Cache is disabled")
+                    elif not stats.get("connected"):
+                        print_warning("Cache is not connected")
+                    else:
+                        result = clear_cache()
+                        if result["success"]:
+                            print_success(result["message"])
+                        else:
+                            print_error(result["message"])
+                except Exception as e:
+                    print_error(f"Failed to clear cache: {e}")
+                input(c("\n  Press Enter to continue...", Colors.DIM))
+            elif choice.upper() == "D":
+                # Export to database
+                print_header("EXPORT TO DATABASE")
+                try:
+                    from price_correlation.db import export_to_timescaledb, get_db_stats
+                    db_stats = get_db_stats()
+                    if not db_stats.get("enabled"):
+                        print_warning("DB export is disabled")
+                    elif not db_stats.get("connected"):
+                        print_warning("Database is not connected")
+                    else:
+                        # Load data from state
+                        labels = state.load("labels")
+                        valid_tickers = state.load("valid_tickers")
+                        corr_matrix = state.load("corr_matrix")
+                        silhouette = state.load("silhouette")
+
+                        if labels is None or valid_tickers is None or corr_matrix is None:
+                            print_error("No clustering results found. Run the pipeline first.")
+                        else:
+                            from collections import Counter
+                            label_counts = Counter(labels)
+                            n_noise = label_counts.pop(-1, 0)
+                            n_clusters = len(label_counts)
+
+                            result = export_to_timescaledb(
+                                labels=labels,
+                                tickers=valid_tickers,
+                                corr_matrix=corr_matrix,
+                                n_clusters=n_clusters,
+                                n_noise=n_noise,
+                                silhouette_score=silhouette,
+                                clustering_method=config.method,
+                                correlation_threshold=config.correlation_threshold,
+                            )
+                            if result["success"]:
+                                print_success(f"Exported {result['clusters_exported']} clusters, "
+                                            f"{result['correlations_exported']} correlations")
+                            else:
+                                print_error(f"Export failed: {result['message']}")
+                except Exception as e:
+                    print_error(f"Failed to export to database: {e}")
+                input(c("\n  Press Enter to continue...", Colors.DIM))
             else:
-                print_error("Invalid choice. Enter a number 0-9.")
+                print_error("Invalid choice. Enter a number 0-9 or C/D.")
                 time.sleep(1)
 
         except KeyboardInterrupt:

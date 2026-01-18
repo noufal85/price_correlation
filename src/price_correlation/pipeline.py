@@ -118,9 +118,21 @@ def run_pipeline(config: PipelineConfig | dict | None = None) -> dict:
         corr_matrix,
         output_dir,
         correlation_threshold=config.correlation_threshold,
+        n_clusters=stats["n_clusters"],
+        n_noise=stats["n_noise"],
+        silhouette_score=silhouette,
+        clustering_method=config.clustering_method,
+        execution_time_seconds=time.time() - start_time,
     )
-    for name, path in output_files.items():
-        print(f"  {name}: {path}")
+    for name, item in output_files.items():
+        if name == "db_export":
+            if item.get("success"):
+                print(f"  {name}: {item['clusters_exported']} clusters, "
+                      f"{item['correlations_exported']} correlations exported")
+            else:
+                print(f"  {name}: {item.get('message', 'failed')}")
+        else:
+            print(f"  {name}: {item}")
 
     elapsed = time.time() - start_time
 

@@ -1,9 +1,20 @@
 """Data ingestion - fetch historical price data."""
 
+import logging
 from datetime import datetime, timedelta
 
 import pandas as pd
 import yfinance as yf
+
+from .cache import (
+    TTL_PRICES,
+    cache_key_for_prices,
+    deserialize_dataframe,
+    get_cache,
+    serialize_dataframe,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def fetch_price_history(
@@ -74,3 +85,50 @@ def get_trading_days(start_date: str, end_date: str) -> pd.DatetimeIndex:
     """Get US trading days between two dates."""
     spy = yf.download("SPY", start=start_date, end=end_date, progress=False)
     return spy.index
+
+
+def fetch_price_history_cached(
+    tickers: list[str],
+    start_date: str | None = None,
+    end_date: str | None = None,
+    period_months: int = 18,
+) -> pd.DataFrame:
+    """
+    Fetch adjusted close prices with Redis caching.
+
+    Uses cache if available, falls back to API on cache miss.
+    """
+    if end_date is None:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+
+    if start_date is None:
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        start_dt = end_dt - timedelta(days=period_months * 30)
+        start_date = start_dt.strftime("%Y-%m-%d")
+
+    cache = get_cache()
+    cache_key = cache_key_for_prices(tickers, start_date, end_date)
+
+    # Try cache first
+    if cache and cache.is_connected:
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            logger.info(f"Cache hit for {len(tickers)} tickers")
+            try:
+                return deserialize_dataframe(cached_data)
+            except Exception as e:
+                logger.warning(f"Cache deserialize failed: {e}")
+
+    # Cache miss - fetch from API
+    logger.info(f"Cache miss - fetching {len(tickers)} tickers from API")
+    prices = fetch_price_history(tickers, start_date, end_date, period_months)
+
+    # Store in cache
+    if cache and cache.is_connected:
+        try:
+            cache.set(cache_key, serialize_dataframe(prices), TTL_PRICES)
+            logger.info(f"Cached {len(tickers)} tickers price data")
+        except Exception as e:
+            logger.warning(f"Cache store failed: {e}")
+
+    return prices

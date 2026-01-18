@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  price-correlation:
+    build: .
+    image: price-correlation:latest
+    container_name: price-correlation
+    env_file:
+      - .env
+    environment:
+      # Override defaults here if needed
+      - ENABLE_CACHE=${ENABLE_CACHE:-true}
+      - ENABLE_DB_EXPORT=${ENABLE_DB_EXPORT:-true}
+    volumes:
+      # Mount output directory for persistent results
+      - ./output:/app/output
+      # Mount config directory for custom configurations
+      - ./config:/app/config:ro
+    # Use host network to access Redis and TimescaleDB on host machine
+    network_mode: host
+    # Restart policy
+    restart: "no"
+
+# Usage:
+#
+# Build and run one-shot (default - runs full pipeline):
+#   docker-compose up --build
+#
+# Run interactive CLI:
+#   docker-compose run price-correlation python cli.py
+#
+# Build only:
+#   docker-compose build
+#
+# Run with custom command:
+#   docker-compose run price-correlation python -c "from price_correlation.pipeline import run_sample_pipeline; run_sample_pipeline()"

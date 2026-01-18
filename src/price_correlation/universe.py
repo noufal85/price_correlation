@@ -1,7 +1,19 @@
 """Universe management - fetch NYSE/NASDAQ stock tickers."""
 
+import logging
+
 import pandas as pd
 import yfinance as yf
+
+from .cache import (
+    TTL_UNIVERSE,
+    cache_key_for_universe,
+    deserialize_json,
+    get_cache,
+    serialize_json,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def get_sp500_tickers() -> list[str]:
@@ -77,3 +89,47 @@ def get_sample_tickers(n: int = 50) -> list[str]:
         "DE", "SBUX", "AXP", "BLK", "MDLZ"
     ]
     return samples[:n]
+
+
+def get_full_universe_cached(
+    source: str = "yfinance",
+    include_validation: bool = False,
+    filters: dict | None = None,
+) -> list[str]:
+    """
+    Get stock universe with Redis caching.
+
+    Args:
+        source: Data source ('yfinance' or 'fmp')
+        include_validation: Whether to validate tickers
+        filters: Optional filters for cache key generation
+
+    Returns:
+        List of ticker symbols
+    """
+    cache = get_cache()
+    cache_key = cache_key_for_universe(source, filters)
+
+    # Try cache first
+    if cache and cache.is_connected:
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            logger.info("Cache hit for universe")
+            try:
+                return deserialize_json(cached_data)
+            except Exception as e:
+                logger.warning(f"Cache deserialize failed: {e}")
+
+    # Cache miss - fetch from source
+    logger.info(f"Cache miss - fetching universe from {source}")
+    tickers = get_full_universe(include_validation=include_validation)
+
+    # Store in cache
+    if cache and cache.is_connected:
+        try:
+            cache.set(cache_key, serialize_json(tickers), TTL_UNIVERSE)
+            logger.info(f"Cached {len(tickers)} tickers")
+        except Exception as e:
+            logger.warning(f"Cache store failed: {e}")
+
+    return tickers

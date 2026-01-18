@@ -1,11 +1,16 @@
 """Export module - save results to JSON and Parquet."""
 
 import json
+import logging
 from datetime import date
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from .db import export_to_timescaledb, is_db_export_enabled
+
+logger = logging.getLogger(__name__)
 
 
 def export_clusters_json(
@@ -167,9 +172,15 @@ def export_all(
     correlation_threshold: float = 0.7,
     export_json: bool = True,
     export_parquet: bool = True,
-) -> dict[str, Path]:
+    export_db: bool | None = None,
+    n_clusters: int | None = None,
+    n_noise: int = 0,
+    silhouette_score: float | None = None,
+    clustering_method: str | None = None,
+    execution_time_seconds: float | None = None,
+) -> dict[str, Path | dict]:
     """
-    Export all results to output directory.
+    Export all results to output directory and optionally to TimescaleDB.
 
     Args:
         labels: Cluster labels for each ticker
@@ -179,9 +190,15 @@ def export_all(
         correlation_threshold: Min correlation for pair export
         export_json: Export JSON format files
         export_parquet: Export Parquet format files
+        export_db: Export to TimescaleDB (None=auto based on env)
+        n_clusters: Number of clusters (for DB metadata)
+        n_noise: Number of noise points (for DB metadata)
+        silhouette_score: Clustering quality score (for DB metadata)
+        clustering_method: Method used (for DB metadata)
+        execution_time_seconds: Pipeline time (for DB metadata)
 
     Returns:
-        Dictionary of output file paths
+        Dictionary of output file paths and DB export result
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -218,5 +235,38 @@ def export_all(
             corr_matrix, tickers, corr_parquet, threshold=correlation_threshold
         )
         output_files["correlations_parquet"] = corr_parquet
+
+    # TimescaleDB export
+    should_export_db = export_db if export_db is not None else is_db_export_enabled()
+    if should_export_db:
+        # Calculate n_clusters from labels if not provided
+        if n_clusters is None:
+            from collections import Counter
+
+            label_counts = Counter(labels)
+            n_clusters = len([k for k in label_counts if k != -1])
+            n_noise = label_counts.get(-1, 0)
+
+        logger.info("Exporting to TimescaleDB...")
+        db_result = export_to_timescaledb(
+            labels=labels,
+            tickers=tickers,
+            corr_matrix=corr_matrix,
+            n_clusters=n_clusters,
+            n_noise=n_noise,
+            silhouette_score=silhouette_score,
+            clustering_method=clustering_method,
+            execution_time_seconds=execution_time_seconds,
+            correlation_threshold=correlation_threshold,
+        )
+        output_files["db_export"] = db_result
+
+        if db_result["success"]:
+            logger.info(
+                f"DB export complete: {db_result['clusters_exported']} clusters, "
+                f"{db_result['correlations_exported']} correlations"
+            )
+        else:
+            logger.warning(f"DB export failed: {db_result['message']}")
 
     return output_files
