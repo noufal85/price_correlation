@@ -20,17 +20,45 @@ http://localhost:5000
 
 | Page | URL | Description |
 |------|-----|-------------|
-| Dashboard | `/` | Pipeline status, trigger runs, quick stats |
+| Dashboard | `/` | Overview, quick stats, market data |
+| Pipeline | `/pipeline` | Run pipeline with real-time progress tracking |
 | Clusters | `/clusters` | Browse all clusters and their member stocks |
 | Correlations | `/correlations` | View highly correlated stock pairs |
 | Stock Detail | `/stock/AAPL` | Detailed view of individual stock with FMP data |
 | Charts | `/charts` | Analytics visualizations |
 
+## Pipeline Page
+
+The dedicated pipeline control page at `/pipeline` provides:
+
+- **Configuration Options**:
+  - Data source: Full universe or sample (faster)
+  - Sample size: 10-500 stocks
+  - History period: 90-540 days
+  - Clustering method: Hierarchical or DBSCAN
+
+- **Real-time Progress**:
+  - Step-by-step progress indicator
+  - Current step name and details
+  - Progress bar with percentage
+  - Elapsed time counter
+
+- **Live Output**:
+  - Scrolling log output from pipeline
+  - Timestamped messages
+  - Auto-scroll to latest
+
+- **Controls**:
+  - Run Pipeline button
+  - Stop Pipeline button (kills running job)
+  - Results summary when complete
+
 ## Dashboard Features
 
-- **Run Pipeline**: Click "Run Pipeline" button to start a new clustering analysis
-- **Pipeline Status**: Shows if pipeline is idle, running, or last run time
-- **Quick Stats**: Number of stocks, clusters, and average correlation
+- **Pipeline Status**: Mini progress display when running
+- **Quick Stats**: Number of stocks, clusters, and silhouette score
+- **Recent Runs**: Table of past analysis runs
+- **Top Correlations**: Highest correlated pairs
 - **Market Overview**: Sector performance from FMP API
 
 ## Cluster View
@@ -64,18 +92,32 @@ Displays:
 ### Pipeline Control
 
 ```bash
-# Check pipeline status
+# Check pipeline status (includes progress details)
 GET /api/pipeline/status
+# Response:
+{
+  "running": true,
+  "current_step": 3,
+  "total_steps": 8,
+  "step_name": "Preprocessing",
+  "elapsed_seconds": 45.2
+}
+
+# Get pipeline logs (for live output)
+GET /api/pipeline/logs?since=0
 
 # Run pipeline
 POST /api/pipeline/run
-
-# Response:
+# Body:
 {
-  "status": "running" | "idle",
-  "last_run": "2024-01-15T10:30:00",
-  "message": "Pipeline started"
+  "use_sample": true,
+  "sample_size": 50,
+  "days": 180,
+  "method": "hierarchical"
 }
+
+# Kill running pipeline
+POST /api/pipeline/kill
 ```
 
 ### Database Queries
