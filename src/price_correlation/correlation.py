@@ -16,7 +16,12 @@ def compute_correlation_matrix(returns_df: pd.DataFrame) -> np.ndarray:
         Symmetric NxN correlation matrix
     """
     returns_matrix = returns_df.values.T
-    return np.corrcoef(returns_matrix)
+    corr = np.corrcoef(returns_matrix)
+
+    # Replace NaN with 0 (uncorrelated) for stocks with insufficient data
+    corr = np.nan_to_num(corr, nan=0.0)
+
+    return corr
 
 
 def correlation_to_distance(
@@ -59,27 +64,52 @@ def get_highly_correlated_pairs(
     corr_matrix: np.ndarray,
     tickers: list[str],
     threshold: float = 0.7,
+    max_pairs: int = 10000,
 ) -> list[dict]:
     """
     Extract pairs with correlation above threshold.
+
+    Uses vectorized numpy operations for speed with large matrices.
+
+    Args:
+        corr_matrix: NxN correlation matrix
+        tickers: List of ticker symbols
+        threshold: Minimum absolute correlation
+        max_pairs: Maximum pairs to return (for memory efficiency)
 
     Returns:
         List of {"ticker_a", "ticker_b", "correlation"} dicts
     """
     n = len(tickers)
+
+    # Get upper triangle indices (excluding diagonal)
+    i_upper, j_upper = np.triu_indices(n, k=1)
+
+    # Get all upper triangle correlations
+    upper_corrs = corr_matrix[i_upper, j_upper]
+
+    # Find indices where correlation exceeds threshold
+    mask = np.abs(upper_corrs) >= threshold
+    filtered_i = i_upper[mask]
+    filtered_j = j_upper[mask]
+    filtered_corrs = upper_corrs[mask]
+
+    # Sort by absolute correlation descending
+    sort_idx = np.argsort(-np.abs(filtered_corrs))
+
+    # Limit to max_pairs for memory efficiency
+    sort_idx = sort_idx[:max_pairs]
+
+    # Build result list
     pairs = []
+    for idx in sort_idx:
+        pairs.append({
+            "ticker_a": tickers[filtered_i[idx]],
+            "ticker_b": tickers[filtered_j[idx]],
+            "correlation": float(filtered_corrs[idx]),
+        })
 
-    for i in range(n):
-        for j in range(i + 1, n):
-            corr = corr_matrix[i, j]
-            if abs(corr) >= threshold:
-                pairs.append({
-                    "ticker_a": tickers[i],
-                    "ticker_b": tickers[j],
-                    "correlation": float(corr),
-                })
-
-    return sorted(pairs, key=lambda x: -abs(x["correlation"]))
+    return pairs
 
 
 def distance_matrix_from_condensed(
