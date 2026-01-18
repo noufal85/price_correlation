@@ -195,53 +195,60 @@ class FMPClient:
         sectors: list[str] | None = None,
         is_actively_trading: bool = True,
         progress_callback=None,
+        split_threshold: int = 500,
     ) -> list[dict]:
         """
         Fetch COMPLETE stock universe using iterative market cap ranges.
 
-        This method fetches all stocks by iterating through market cap ranges
-        to avoid hitting API limits. Works best with premium API subscriptions.
+        This method fetches all stocks by iterating through market cap ranges.
+        If any range returns >= split_threshold stocks, it automatically splits
+        the range in half and refetches to ensure no data is missed.
 
         Args:
             exchanges: Target exchanges (default: NYSE, NASDAQ)
             sectors: Optional sector filter
             is_actively_trading: Only include actively trading stocks
             progress_callback: Optional callback for progress updates
+            split_threshold: Max stocks per range before splitting (default: 500)
 
         Returns:
             Complete list of all stocks matching criteria
         """
-        # Market cap ranges to iterate through (in USD)
-        # Start from mega cap and go down to micro cap
-        market_cap_ranges = [
-            (1_000_000_000_000, None),        # $1T+ (mega cap)
-            (100_000_000_000, 1_000_000_000_000),  # $100B - $1T
-            (50_000_000_000, 100_000_000_000),     # $50B - $100B
-            (10_000_000_000, 50_000_000_000),      # $10B - $50B (large cap)
-            (5_000_000_000, 10_000_000_000),       # $5B - $10B
-            (2_000_000_000, 5_000_000_000),        # $2B - $5B (mid cap)
-            (1_000_000_000, 2_000_000_000),        # $1B - $2B
-            (500_000_000, 1_000_000_000),          # $500M - $1B (small cap)
-            (300_000_000, 500_000_000),            # $300M - $500M
-            (100_000_000, 300_000_000),            # $100M - $300M (micro cap)
-            (50_000_000, 100_000_000),             # $50M - $100M
-            (10_000_000, 50_000_000),              # $10M - $50M (nano cap)
-            (None, 10_000_000),                    # < $10M
-        ]
-
         all_stocks = []
         seen_symbols = set()
         target_exchanges = exchanges or ["NYSE", "NASDAQ"]
 
-        total_ranges = len(market_cap_ranges)
+        # Initial market cap ranges (will be split if needed)
+        ranges_to_process = [
+            (1_000_000_000_000, None),             # $1T+
+            (100_000_000_000, 1_000_000_000_000),  # $100B - $1T
+            (50_000_000_000, 100_000_000_000),     # $50B - $100B
+            (10_000_000_000, 50_000_000_000),      # $10B - $50B
+            (5_000_000_000, 10_000_000_000),       # $5B - $10B
+            (2_000_000_000, 5_000_000_000),        # $2B - $5B
+            (1_000_000_000, 2_000_000_000),        # $1B - $2B
+            (500_000_000, 1_000_000_000),          # $500M - $1B
+            (300_000_000, 500_000_000),            # $300M - $500M
+            (100_000_000, 300_000_000),            # $100M - $300M
+            (50_000_000, 100_000_000),             # $50M - $100M
+            (10_000_000, 50_000_000),              # $10M - $50M
+            (None, 10_000_000),                    # < $10M
+        ]
 
-        for idx, (mcap_min, mcap_max) in enumerate(market_cap_ranges):
+        processed_count = 0
+        total_initial = len(ranges_to_process)
+
+        while ranges_to_process:
+            mcap_min, mcap_max = ranges_to_process.pop(0)
             range_label = self._format_mcap_range(mcap_min, mcap_max)
+            processed_count += 1
 
             if progress_callback:
-                progress_callback(f"[{idx+1}/{total_ranges}] Fetching {range_label}...")
+                progress_callback(f"[{processed_count}] Fetching {range_label}...")
 
             logger.info(f"Fetching market cap range: {range_label}")
+
+            range_needs_split = False
 
             for exchange in target_exchanges:
                 params = {
@@ -263,26 +270,111 @@ class FMPClient:
                         if sectors:
                             stocks = [s for s in stocks if s.get("sector") in sectors]
 
-                        # Add only unseen stocks
-                        new_count = 0
-                        for stock in stocks:
-                            symbol = stock.get("symbol")
-                            if symbol and symbol not in seen_symbols:
-                                seen_symbols.add(symbol)
-                                all_stocks.append(stock)
-                                new_count += 1
+                        # Check if we hit the threshold - need to split
+                        if len(stocks) >= split_threshold:
+                            range_needs_split = True
+                            logger.warning(
+                                f"  {exchange} {range_label}: {len(stocks)} stocks "
+                                f"(>= {split_threshold}), will split range"
+                            )
+                            if progress_callback:
+                                progress_callback(
+                                    f"  {exchange}: {len(stocks)} stocks - splitting range..."
+                                )
+                        else:
+                            # Add only unseen stocks
+                            new_count = 0
+                            for stock in stocks:
+                                symbol = stock.get("symbol")
+                                if symbol and symbol not in seen_symbols:
+                                    seen_symbols.add(symbol)
+                                    all_stocks.append(stock)
+                                    new_count += 1
 
-                        if new_count > 0:
-                            logger.info(f"  {exchange} {range_label}: +{new_count} new stocks")
+                            if new_count > 0:
+                                logger.info(f"  {exchange} {range_label}: +{new_count} new stocks")
+                            if progress_callback:
+                                progress_callback(f"  {exchange}: +{new_count} stocks")
 
                 except Exception as e:
                     logger.warning(f"Error fetching {exchange} {range_label}: {e}")
+
+            # If any exchange hit threshold, split the range and add to queue
+            if range_needs_split:
+                split_ranges = self._split_range(mcap_min, mcap_max)
+                if split_ranges:
+                    logger.info(f"  Splitting {range_label} into {len(split_ranges)} sub-ranges")
+                    # Add split ranges to the front of the queue
+                    ranges_to_process = split_ranges + ranges_to_process
+                else:
+                    # Can't split further (range too small), just fetch what we can
+                    logger.warning(f"  Cannot split {range_label} further, fetching as-is")
+                    for exchange in target_exchanges:
+                        params = {
+                            "limit": 10000,
+                            "exchange": exchange,
+                            "isActivelyTrading": "true" if is_actively_trading else "false",
+                        }
+                        if mcap_min:
+                            params["marketCapMoreThan"] = mcap_min
+                        if mcap_max:
+                            params["marketCapLowerThan"] = mcap_max
+
+                        try:
+                            stocks = self._request("stock-screener", params)
+                            if isinstance(stocks, list):
+                                if sectors:
+                                    stocks = [s for s in stocks if s.get("sector") in sectors]
+                                new_count = 0
+                                for stock in stocks:
+                                    symbol = stock.get("symbol")
+                                    if symbol and symbol not in seen_symbols:
+                                        seen_symbols.add(symbol)
+                                        all_stocks.append(stock)
+                                        new_count += 1
+                                logger.info(f"  {exchange} {range_label}: +{new_count} new stocks (forced)")
+                        except Exception as e:
+                            logger.warning(f"Error fetching {exchange} {range_label}: {e}")
 
         if progress_callback:
             progress_callback(f"Complete: {len(all_stocks)} total stocks")
 
         logger.info(f"Total unique stocks fetched: {len(all_stocks)}")
         return all_stocks
+
+    def _split_range(
+        self,
+        mcap_min: int | None,
+        mcap_max: int | None,
+    ) -> list[tuple[int | None, int | None]]:
+        """
+        Split a market cap range in half.
+
+        Returns list of 2 sub-ranges, or empty list if can't split.
+        """
+        # Handle edge cases
+        if mcap_min is None and mcap_max is None:
+            return []
+
+        if mcap_min is None:
+            # Range is "< X", split into "< X/2" and "X/2 to X"
+            mid = mcap_max // 2
+            if mid < 1_000_000:  # Don't split below $1M
+                return []
+            return [(None, mid), (mid, mcap_max)]
+
+        if mcap_max is None:
+            # Range is "> X", can't easily split (would need to know max)
+            # Split into "X to X*10" and "> X*10"
+            upper = mcap_min * 10
+            return [(mcap_min, upper), (upper, None)]
+
+        # Normal range with both bounds
+        if mcap_max - mcap_min < 10_000_000:  # Don't split ranges smaller than $10M
+            return []
+
+        mid = (mcap_min + mcap_max) // 2
+        return [(mcap_min, mid), (mid, mcap_max)]
 
     def _format_mcap_range(self, mcap_min: int | None, mcap_max: int | None) -> str:
         """Format market cap range for display."""
