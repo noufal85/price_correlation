@@ -207,6 +207,7 @@ def export_all(
 
     # JSON exports
     if export_json:
+        print("  Exporting JSON files...")
         # Cluster summary (grouped by cluster)
         json_path = output_dir / "stock_clusters.json"
         export_clusters_json(labels, tickers, json_path)
@@ -223,9 +224,11 @@ def export_all(
             corr_matrix, tickers, pairs_json, threshold=correlation_threshold
         )
         output_files["pairs_json"] = pairs_json
+        print("  JSON files saved")
 
     # Parquet exports
     if export_parquet:
+        print("  Exporting Parquet files...")
         clusters_parquet = output_dir / "equity_clusters.parquet"
         export_clusters_parquet(labels, tickers, clusters_parquet)
         output_files["clusters_parquet"] = clusters_parquet
@@ -235,6 +238,7 @@ def export_all(
             corr_matrix, tickers, corr_parquet, threshold=correlation_threshold
         )
         output_files["correlations_parquet"] = corr_parquet
+        print("  Parquet files saved")
 
     # TimescaleDB export
     should_export_db = export_db if export_db is not None else is_db_export_enabled()
@@ -247,7 +251,7 @@ def export_all(
             n_clusters = len([k for k in label_counts if k != -1])
             n_noise = label_counts.get(-1, 0)
 
-        logger.info("Exporting to TimescaleDB...")
+        print("  Exporting to TimescaleDB...")
         db_result = export_to_timescaledb(
             labels=labels,
             tickers=tickers,
@@ -262,11 +266,13 @@ def export_all(
         output_files["db_export"] = db_result
 
         if db_result["success"]:
-            logger.info(
-                f"DB export complete: {db_result['clusters_exported']} clusters, "
+            print(
+                f"  DB export complete: {db_result['clusters_exported']} clusters, "
                 f"{db_result['correlations_exported']} correlations"
             )
         else:
-            logger.warning(f"DB export failed: {db_result['message']}")
+            print(f"  DB export failed: {db_result['message']}")
+    else:
+        print("  DB export disabled")
 
     return output_files
