@@ -1,0 +1,421 @@
+{% extends "base.html" %}
+
+{% block title %}Run Pipeline - Stock Clustering{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-gray-900">Pipeline Control</h1>
+        <div id="elapsed-time" class="text-gray-500 font-mono"></div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Left Column: Config & Controls -->
+        <div class="space-y-6">
+            <!-- Configuration Card -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Configuration</h2>
+                <form id="pipeline-config" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Data Source</label>
+                        <select name="use_sample" id="use_sample" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="false">Full Universe</option>
+                            <option value="true" selected>Sample (faster)</option>
+                        </select>
+                    </div>
+                    <div id="sample-size-group">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Sample Size</label>
+                        <input type="number" name="sample_size" id="sample_size" value="50" min="10" max="500"
+                               class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">History (days)</label>
+                        <select name="days" id="days" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="90">90 days (3 months)</option>
+                            <option value="180" selected>180 days (6 months)</option>
+                            <option value="365">365 days (1 year)</option>
+                            <option value="540">540 days (18 months)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Clustering Method</label>
+                        <select name="method" id="method" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="hierarchical" selected>Hierarchical</option>
+                            <option value="dbscan">DBSCAN</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Control Buttons -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="space-y-3">
+                    <button id="run-btn" onclick="runPipeline()"
+                            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition flex items-center justify-center">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        Run Pipeline
+                    </button>
+                    <button id="kill-btn" onclick="killPipeline()"
+                            class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 px-4 rounded-lg transition hidden flex items-center justify-center">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"></path>
+                        </svg>
+                        Stop Pipeline
+                    </button>
+                </div>
+            </div>
+
+            <!-- Last Run Results -->
+            <div id="results-card" class="bg-white rounded-lg shadow-md p-6 hidden">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Last Run Results</h2>
+                <div id="results-content" class="space-y-2 text-sm"></div>
+            </div>
+        </div>
+
+        <!-- Middle Column: Progress -->
+        <div class="lg:col-span-2 space-y-6">
+            <!-- Progress Card -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Progress</h2>
+                    <span id="status-badge" class="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">
+                        Idle
+                    </span>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="mb-6">
+                    <div class="flex justify-between text-sm text-gray-600 mb-1">
+                        <span id="current-step-label">Ready to run</span>
+                        <span id="progress-percent">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3">
+                        <div id="progress-bar" class="bg-blue-600 h-3 rounded-full transition-all duration-500" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Steps List -->
+                <div class="space-y-2">
+                    {% for step in steps %}
+                    <div id="step-{{ step.num }}" class="flex items-center p-3 rounded-lg bg-gray-50 step-item">
+                        <div class="step-icon w-8 h-8 rounded-full flex items-center justify-center mr-3 bg-gray-200 text-gray-500">
+                            <span class="step-number text-sm font-medium">{{ step.num }}</span>
+                            <svg class="step-check w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <svg class="step-spinner w-4 h-4 hidden animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <div class="font-medium text-gray-900">{{ step.name }}</div>
+                            <div class="text-sm text-gray-500 step-desc">{{ step.description }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Logs Card -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-lg font-semibold text-gray-900">Live Output</h2>
+                    <button onclick="clearLogs()" class="text-sm text-gray-500 hover:text-gray-700">Clear</button>
+                </div>
+                <div id="logs-container" class="bg-gray-900 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
+                    <div id="logs-content" class="text-gray-300 space-y-1">
+                        <div class="text-gray-500">Waiting for pipeline to start...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let pollInterval = null;
+    let logIndex = 0;
+    let startTime = null;
+
+    // Toggle sample size visibility
+    document.getElementById('use_sample').addEventListener('change', function() {
+        const sampleGroup = document.getElementById('sample-size-group');
+        sampleGroup.style.display = this.value === 'true' ? 'block' : 'none';
+    });
+
+    function formatDuration(seconds) {
+        if (!seconds) return '--:--';
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    async function runPipeline() {
+        const config = {
+            use_sample: document.getElementById('use_sample').value === 'true',
+            sample_size: parseInt(document.getElementById('sample_size').value),
+            days: parseInt(document.getElementById('days').value),
+            method: document.getElementById('method').value
+        };
+
+        try {
+            const res = await fetch('/api/pipeline/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            });
+            const data = await res.json();
+
+            if (res.ok) {
+                startTime = Date.now();
+                logIndex = 0;
+                clearLogs();
+                startPolling();
+                updateUIRunning();
+            } else {
+                alert(data.error || 'Failed to start pipeline');
+            }
+        } catch (e) {
+            alert('Error starting pipeline: ' + e.message);
+        }
+    }
+
+    async function killPipeline() {
+        if (!confirm('Are you sure you want to stop the pipeline?')) return;
+
+        try {
+            const res = await fetch('/api/pipeline/kill', { method: 'POST' });
+            const data = await res.json();
+            addLog('Kill requested - waiting for current step to complete...', 'text-yellow-400');
+        } catch (e) {
+            alert('Error: ' + e.message);
+        }
+    }
+
+    function startPolling() {
+        if (pollInterval) clearInterval(pollInterval);
+        pollInterval = setInterval(async () => {
+            await updateStatus();
+            await updateLogs();
+        }, 1000);
+    }
+
+    function stopPolling() {
+        if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+        }
+    }
+
+    async function updateStatus() {
+        try {
+            const res = await fetch('/api/pipeline/status');
+            const data = await res.json();
+
+            // Update progress bar
+            const progress = (data.current_step / data.total_steps) * 100;
+            document.getElementById('progress-bar').style.width = progress + '%';
+            document.getElementById('progress-percent').textContent = Math.round(progress) + '%';
+
+            // Update current step label
+            if (data.step_name) {
+                document.getElementById('current-step-label').textContent =
+                    `Step ${data.current_step}: ${data.step_name}`;
+            }
+
+            // Update elapsed time
+            if (data.elapsed_seconds) {
+                document.getElementById('elapsed-time').textContent =
+                    'Elapsed: ' + formatDuration(data.elapsed_seconds);
+            }
+
+            // Update step indicators
+            for (let i = 1; i <= data.total_steps; i++) {
+                updateStepIndicator(i, data.current_step);
+            }
+
+            // Update status badge
+            const badge = document.getElementById('status-badge');
+            if (data.running) {
+                badge.className = 'px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-700';
+                badge.textContent = data.kill_requested ? 'Stopping...' : 'Running';
+            } else if (data.error) {
+                badge.className = 'px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-700';
+                badge.textContent = 'Error';
+                stopPolling();
+                updateUIIdle();
+                showResults(data);
+            } else if (data.last_result) {
+                badge.className = 'px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-700';
+                badge.textContent = 'Completed';
+                if (!data.running) {
+                    stopPolling();
+                    updateUIIdle();
+                    showResults(data);
+                }
+            } else {
+                badge.className = 'px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600';
+                badge.textContent = 'Idle';
+            }
+
+        } catch (e) {
+            console.error('Status update error:', e);
+        }
+    }
+
+    function updateStepIndicator(stepNum, currentStep) {
+        const stepEl = document.getElementById('step-' + stepNum);
+        if (!stepEl) return;
+
+        const icon = stepEl.querySelector('.step-icon');
+        const number = stepEl.querySelector('.step-number');
+        const check = stepEl.querySelector('.step-check');
+        const spinner = stepEl.querySelector('.step-spinner');
+
+        number.classList.add('hidden');
+        check.classList.add('hidden');
+        spinner.classList.add('hidden');
+
+        if (stepNum < currentStep) {
+            // Completed
+            stepEl.classList.remove('bg-gray-50', 'bg-blue-50');
+            stepEl.classList.add('bg-green-50');
+            icon.className = 'step-icon w-8 h-8 rounded-full flex items-center justify-center mr-3 bg-green-500 text-white';
+            check.classList.remove('hidden');
+        } else if (stepNum === currentStep) {
+            // Current
+            stepEl.classList.remove('bg-gray-50', 'bg-green-50');
+            stepEl.classList.add('bg-blue-50');
+            icon.className = 'step-icon w-8 h-8 rounded-full flex items-center justify-center mr-3 bg-blue-500 text-white';
+            spinner.classList.remove('hidden');
+        } else {
+            // Pending
+            stepEl.classList.remove('bg-blue-50', 'bg-green-50');
+            stepEl.classList.add('bg-gray-50');
+            icon.className = 'step-icon w-8 h-8 rounded-full flex items-center justify-center mr-3 bg-gray-200 text-gray-500';
+            number.classList.remove('hidden');
+        }
+    }
+
+    async function updateLogs() {
+        try {
+            const res = await fetch('/api/pipeline/logs?since=' + logIndex);
+            const data = await res.json();
+
+            if (data.logs && data.logs.length > 0) {
+                data.logs.forEach(log => {
+                    addLog(`[${log.time}] ${log.message}`);
+                });
+                logIndex = data.total;
+            }
+        } catch (e) {
+            console.error('Log update error:', e);
+        }
+    }
+
+    function addLog(message, colorClass = 'text-gray-300') {
+        const container = document.getElementById('logs-content');
+        const line = document.createElement('div');
+        line.className = colorClass;
+        line.textContent = message;
+        container.appendChild(line);
+
+        // Auto-scroll
+        const logsContainer = document.getElementById('logs-container');
+        logsContainer.scrollTop = logsContainer.scrollHeight;
+    }
+
+    function clearLogs() {
+        document.getElementById('logs-content').innerHTML =
+            '<div class="text-gray-500">Pipeline starting...</div>';
+        logIndex = 0;
+    }
+
+    function updateUIRunning() {
+        document.getElementById('run-btn').classList.add('hidden');
+        document.getElementById('kill-btn').classList.remove('hidden');
+        document.getElementById('pipeline-config').querySelectorAll('select, input').forEach(el => {
+            el.disabled = true;
+        });
+    }
+
+    function updateUIIdle() {
+        document.getElementById('run-btn').classList.remove('hidden');
+        document.getElementById('kill-btn').classList.add('hidden');
+        document.getElementById('pipeline-config').querySelectorAll('select, input').forEach(el => {
+            el.disabled = false;
+        });
+    }
+
+    function showResults(data) {
+        const card = document.getElementById('results-card');
+        const content = document.getElementById('results-content');
+
+        if (data.error) {
+            card.classList.remove('hidden');
+            content.innerHTML = `
+                <div class="text-red-600 font-medium">Error:</div>
+                <div class="text-red-500 text-xs bg-red-50 p-2 rounded">${data.error}</div>
+            `;
+            return;
+        }
+
+        if (data.last_result) {
+            const r = data.last_result;
+            card.classList.remove('hidden');
+            content.innerHTML = `
+                <div class="flex justify-between py-1 border-b border-gray-100">
+                    <span class="text-gray-600">Stocks Processed</span>
+                    <span class="font-medium">${r.n_stocks_processed || '-'}</span>
+                </div>
+                <div class="flex justify-between py-1 border-b border-gray-100">
+                    <span class="text-gray-600">Clusters Found</span>
+                    <span class="font-medium">${r.n_clusters || '-'}</span>
+                </div>
+                <div class="flex justify-between py-1 border-b border-gray-100">
+                    <span class="text-gray-600">Noise Points</span>
+                    <span class="font-medium">${r.n_noise || '-'}</span>
+                </div>
+                <div class="flex justify-between py-1 border-b border-gray-100">
+                    <span class="text-gray-600">Silhouette Score</span>
+                    <span class="font-medium">${r.silhouette_score ? r.silhouette_score.toFixed(3) : '-'}</span>
+                </div>
+                <div class="flex justify-between py-1 border-b border-gray-100">
+                    <span class="text-gray-600">Method</span>
+                    <span class="font-medium">${r.clustering_method || '-'}</span>
+                </div>
+                <div class="flex justify-between py-1">
+                    <span class="text-gray-600">Execution Time</span>
+                    <span class="font-medium">${r.execution_time_seconds ? r.execution_time_seconds.toFixed(1) + 's' : '-'}</span>
+                </div>
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <a href="/clusters" class="text-blue-600 hover:text-blue-700 text-sm font-medium">
+                        View Clusters &rarr;
+                    </a>
+                </div>
+            `;
+        }
+    }
+
+    // Check status on page load
+    (async function() {
+        await updateStatus();
+        const res = await fetch('/api/pipeline/status');
+        const data = await res.json();
+        if (data.running) {
+            startPolling();
+            updateUIRunning();
+        } else if (data.last_result || data.error) {
+            showResults(data);
+        }
+    })();
+</script>
+{% endblock %}

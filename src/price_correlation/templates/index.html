@@ -9,16 +9,34 @@
         <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
         <div class="flex space-x-3">
             <button id="clear-cache-btn" class="btn-secondary">Clear Cache</button>
-            <button id="run-pipeline-btn" class="btn-primary">Run Pipeline</button>
+            <a href="/pipeline" class="btn-primary inline-flex items-center">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                Run Pipeline
+            </a>
         </div>
     </div>
 
     <!-- Pipeline Status Card -->
     <div id="pipeline-status-card" class="bg-white rounded-lg shadow-md p-6">
-        <h2 class="text-lg font-semibold text-gray-900 mb-4">Pipeline Status</h2>
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold text-gray-900">Pipeline Status</h2>
+            <a href="/pipeline" class="text-sm text-blue-600 hover:text-blue-700">View Details &rarr;</a>
+        </div>
         <div id="pipeline-status" class="flex items-center space-x-4">
             <span class="status-dot status-green"></span>
             <span class="text-gray-600">Ready</span>
+        </div>
+        <div id="pipeline-progress" class="hidden mt-4">
+            <div class="flex justify-between text-sm text-gray-600 mb-1">
+                <span id="pipeline-step">Step 0/8</span>
+                <span id="pipeline-step-name"></span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2">
+                <div id="pipeline-progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
         </div>
         <div id="pipeline-error" class="hidden mt-4 p-4 bg-red-50 text-red-700 rounded-lg"></div>
     </div>
@@ -117,36 +135,6 @@
     </div>
 </div>
 
-<!-- Run Pipeline Modal -->
-<div id="run-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
-        <h2 class="text-xl font-bold text-gray-900 mb-4">Run Pipeline</h2>
-        <form id="run-form" class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Mode</label>
-                <select id="run-mode" class="w-full border rounded-lg px-3 py-2">
-                    <option value="sample">Sample (50 stocks)</option>
-                    <option value="full">Full Universe</option>
-                </select>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Days of History</label>
-                <input type="number" id="run-days" value="180" class="w-full border rounded-lg px-3 py-2">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Clustering Method</label>
-                <select id="run-method" class="w-full border rounded-lg px-3 py-2">
-                    <option value="hierarchical">Hierarchical</option>
-                    <option value="dbscan">DBSCAN</option>
-                </select>
-            </div>
-            <div class="flex justify-end space-x-3 mt-6">
-                <button type="button" id="cancel-run" class="btn-secondary">Cancel</button>
-                <button type="submit" class="btn-primary">Start Pipeline</button>
-            </div>
-        </form>
-    </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
@@ -264,20 +252,29 @@
             const status = await res.json();
             const statusEl = document.getElementById('pipeline-status');
             const errorEl = document.getElementById('pipeline-error');
+            const progressEl = document.getElementById('pipeline-progress');
 
             if (status.running) {
-                statusEl.innerHTML = '<span class="status-dot status-yellow"></span><span class="text-gray-600">Running...</span>';
-                document.getElementById('run-pipeline-btn').disabled = true;
-                document.getElementById('run-pipeline-btn').textContent = 'Running...';
+                statusEl.innerHTML = `
+                    <span class="status-dot status-yellow animate-pulse"></span>
+                    <span class="text-gray-600">Running - Step ${status.current_step}/${status.total_steps}</span>
+                `;
+                progressEl.classList.remove('hidden');
+                document.getElementById('pipeline-step').textContent = `Step ${status.current_step}/${status.total_steps}`;
+                document.getElementById('pipeline-step-name').textContent = status.step_name || '';
+                const pct = (status.current_step / status.total_steps) * 100;
+                document.getElementById('pipeline-progress-bar').style.width = pct + '%';
             } else {
-                statusEl.innerHTML = '<span class="status-dot status-green"></span><span class="text-gray-600">Ready</span>';
-                document.getElementById('run-pipeline-btn').disabled = false;
-                document.getElementById('run-pipeline-btn').textContent = 'Run Pipeline';
-
+                progressEl.classList.add('hidden');
                 if (status.error) {
+                    statusEl.innerHTML = '<span class="status-dot status-red"></span><span class="text-gray-600">Error</span>';
                     errorEl.textContent = status.error;
                     errorEl.classList.remove('hidden');
+                } else if (status.last_result) {
+                    statusEl.innerHTML = '<span class="status-dot status-green"></span><span class="text-gray-600">Completed</span>';
+                    errorEl.classList.add('hidden');
                 } else {
+                    statusEl.innerHTML = '<span class="status-dot status-green"></span><span class="text-gray-600">Ready</span>';
                     errorEl.classList.add('hidden');
                 }
             }
@@ -285,39 +282,6 @@
             console.error('Error checking status:', e);
         }
     }
-
-    // Run pipeline modal
-    document.getElementById('run-pipeline-btn').addEventListener('click', () => {
-        document.getElementById('run-modal').classList.remove('hidden');
-    });
-
-    document.getElementById('cancel-run').addEventListener('click', () => {
-        document.getElementById('run-modal').classList.add('hidden');
-    });
-
-    document.getElementById('run-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const mode = document.getElementById('run-mode').value;
-        const days = parseInt(document.getElementById('run-days').value);
-        const method = document.getElementById('run-method').value;
-
-        try {
-            await fetch('/api/pipeline/run', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    use_sample: mode === 'sample',
-                    sample_size: 50,
-                    days: days,
-                    method: method
-                })
-            });
-            document.getElementById('run-modal').classList.add('hidden');
-            checkPipelineStatus();
-        } catch (e) {
-            alert('Failed to start pipeline: ' + e.message);
-        }
-    });
 
     // Clear cache
     document.getElementById('clear-cache-btn').addEventListener('click', async () => {

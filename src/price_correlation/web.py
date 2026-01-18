@@ -3,11 +3,14 @@
 import json
 import logging
 import os
+import sys
 import threading
+import time
 from datetime import date, datetime, timedelta
+from io import StringIO
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, Response
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -21,13 +24,67 @@ app = Flask(
     static_folder=str(Path(__file__).parent / "static"),
 )
 
-# Pipeline run state
+# Pipeline run state with progress tracking
 pipeline_state = {
     "running": False,
     "last_run": None,
     "last_result": None,
     "error": None,
+    "current_step": 0,
+    "total_steps": 8,
+    "step_name": "",
+    "step_details": "",
+    "logs": [],
+    "start_time": None,
+    "kill_requested": False,
+    "thread": None,
 }
+
+# Pipeline steps for progress tracking
+PIPELINE_STEPS = [
+    {"num": 1, "name": "Getting Universe", "description": "Fetching list of tickers to analyze"},
+    {"num": 2, "name": "Fetching Prices", "description": "Downloading historical price data"},
+    {"num": 3, "name": "Preprocessing", "description": "Computing returns and filtering data"},
+    {"num": 4, "name": "Correlations", "description": "Building correlation matrix"},
+    {"num": 5, "name": "Clustering", "description": "Running clustering algorithm"},
+    {"num": 6, "name": "Validation", "description": "Computing cluster quality metrics"},
+    {"num": 7, "name": "Visualization", "description": "Generating t-SNE plot"},
+    {"num": 8, "name": "Exporting", "description": "Saving results to files and database"},
+]
+
+
+class PipelineLogCapture:
+    """Capture print statements during pipeline execution."""
+
+    def __init__(self, state):
+        self.state = state
+        self.original_stdout = sys.stdout
+
+    def write(self, text):
+        self.original_stdout.write(text)
+        if text.strip():
+            self.state["logs"].append({
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "message": text.strip()
+            })
+            # Keep only last 100 log entries
+            if len(self.state["logs"]) > 100:
+                self.state["logs"] = self.state["logs"][-100:]
+
+            # Detect step changes
+            if text.startswith("Step "):
+                try:
+                    step_num = int(text.split(":")[0].replace("Step ", ""))
+                    step_desc = text.split(":", 1)[1].strip() if ":" in text else ""
+                    self.state["current_step"] = step_num
+                    self.state["step_name"] = step_desc
+                except (ValueError, IndexError):
+                    pass
+            elif text.startswith("  "):
+                self.state["step_details"] = text.strip()
+
+    def flush(self):
+        self.original_stdout.flush()
 
 
 def get_fmp_api_key():
@@ -90,6 +147,12 @@ def charts_page():
     return render_template("charts.html")
 
 
+@app.route("/pipeline")
+def pipeline_page():
+    """Pipeline control page."""
+    return render_template("pipeline.html", steps=PIPELINE_STEPS)
+
+
 # =============================================================================
 # API Routes - Pipeline Control
 # =============================================================================
@@ -97,12 +160,33 @@ def charts_page():
 
 @app.route("/api/pipeline/status")
 def pipeline_status():
-    """Get pipeline status."""
+    """Get pipeline status with progress details."""
+    elapsed = None
+    if pipeline_state["start_time"] and pipeline_state["running"]:
+        elapsed = time.time() - pipeline_state["start_time"]
+
     return jsonify({
         "running": pipeline_state["running"],
         "last_run": pipeline_state["last_run"],
         "last_result": pipeline_state["last_result"],
         "error": pipeline_state["error"],
+        "current_step": pipeline_state["current_step"],
+        "total_steps": pipeline_state["total_steps"],
+        "step_name": pipeline_state["step_name"],
+        "step_details": pipeline_state["step_details"],
+        "elapsed_seconds": elapsed,
+        "kill_requested": pipeline_state["kill_requested"],
+    })
+
+
+@app.route("/api/pipeline/logs")
+def pipeline_logs():
+    """Get pipeline logs."""
+    since = request.args.get("since", 0, type=int)
+    logs = pipeline_state["logs"][since:]
+    return jsonify({
+        "logs": logs,
+        "total": len(pipeline_state["logs"]),
     })
 
 
@@ -120,11 +204,24 @@ def run_pipeline():
     method = data.get("method", "hierarchical")
 
     def run_in_background():
+        # Reset state
         pipeline_state["running"] = True
         pipeline_state["error"] = None
         pipeline_state["last_run"] = datetime.now().isoformat()
+        pipeline_state["current_step"] = 0
+        pipeline_state["step_name"] = "Initializing"
+        pipeline_state["step_details"] = ""
+        pipeline_state["logs"] = []
+        pipeline_state["start_time"] = time.time()
+        pipeline_state["kill_requested"] = False
+
+        # Capture stdout for logging
+        log_capture = PipelineLogCapture(pipeline_state)
+        old_stdout = sys.stdout
 
         try:
+            sys.stdout = log_capture
+
             from .pipeline import PipelineConfig, run_pipeline as run
 
             config = PipelineConfig(
@@ -136,16 +233,40 @@ def run_pipeline():
             )
             result = run(config)
             pipeline_state["last_result"] = result
+            pipeline_state["current_step"] = pipeline_state["total_steps"]
+            pipeline_state["step_name"] = "Completed"
         except Exception as e:
             logger.exception(f"Pipeline error: {e}")
             pipeline_state["error"] = str(e)
+            pipeline_state["step_name"] = "Error"
         finally:
+            sys.stdout = old_stdout
             pipeline_state["running"] = False
+            pipeline_state["thread"] = None
 
     thread = threading.Thread(target=run_in_background)
+    pipeline_state["thread"] = thread
     thread.start()
 
     return jsonify({"message": "Pipeline started", "status": "running"})
+
+
+@app.route("/api/pipeline/kill", methods=["POST"])
+def kill_pipeline():
+    """Request to kill the running pipeline."""
+    if not pipeline_state["running"]:
+        return jsonify({"error": "No pipeline running"}), 400
+
+    pipeline_state["kill_requested"] = True
+    pipeline_state["logs"].append({
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "message": "Kill requested - pipeline will stop after current step"
+    })
+
+    return jsonify({
+        "message": "Kill requested",
+        "status": "kill_pending"
+    })
 
 
 # =============================================================================
