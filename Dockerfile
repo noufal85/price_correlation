@@ -12,15 +12,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files first (for layer caching)
-COPY pyproject.toml .
+# Copy all source files needed for installation
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -e ".[full]" \
+# Install Python dependencies (non-editable for Docker)
+RUN pip install --no-cache-dir ".[full]" \
     && pip cache purge
 
-# Copy application code
-COPY src/ ./src/
+# Copy remaining application files
 COPY cli.py .
 COPY scripts/ ./scripts/
 
