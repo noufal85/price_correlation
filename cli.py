@@ -198,7 +198,7 @@ class Config:
     """Pipeline configuration."""
 
     def __init__(self):
-        self.source = "yfinance"
+        self.source = "fmp"  # Default to FMP for full universe
         self.config_file = None
         self.output_dir = "./output"
         self.work_dir = "./.pipeline_state"
@@ -210,6 +210,7 @@ class Config:
         self.market_cap_max = None
         self.sample_size = 50
         self.full = False
+        self.full_universe = True  # Use iterative fetching for complete universe
         self.tickers = None
         self.correlation_threshold = 0.7
         self.visualize = True
@@ -225,7 +226,7 @@ def step_universe(config: Config, state: PipelineState) -> list[dict]:
     step_start = time.time()
 
     if config.source == "fmp":
-        from price_correlation.fmp_client import load_config, get_fmp_universe
+        from price_correlation.fmp_client import load_config, FMPClient
 
         # Check API key
         api_key = os.environ.get("FMP_API_KEY")
@@ -257,7 +258,7 @@ def step_universe(config: Config, state: PipelineState) -> list[dict]:
         if market_cap.get("min"):
             print_stat("Market Cap Min", format_number(market_cap["min"]))
         else:
-            print_stat("Market Cap Min", "None")
+            print_stat("Market Cap Min", "None (all)")
         if market_cap.get("max"):
             print_stat("Market Cap Max", format_number(market_cap["max"]))
 
@@ -268,8 +269,32 @@ def step_universe(config: Config, state: PipelineState) -> list[dict]:
         else:
             print_stat("Sectors", "All")
 
+        print_stat("Full Universe Mode", "Yes (iterative)" if config.full_universe else "No")
+
         print_subheader("Fetching from FMP API")
-        universe = get_fmp_universe(config=fmp_config)
+        print()
+
+        client = FMPClient(config=fmp_config)
+
+        def fmp_progress(msg):
+            print(c(f"  {msg}", Colors.DIM), flush=True)
+
+        if config.full_universe and not config.market_cap_min and not config.market_cap_max:
+            # Use iterative fetching for complete universe
+            print(c("  Using iterative market cap ranges for complete universe...", Colors.DIM), flush=True)
+            print()
+            universe = client.get_full_universe_iterative(
+                exchanges=filters.get("exchanges", ["NYSE", "NASDAQ"]),
+                sectors=filters.get("sectors"),
+                is_actively_trading=filters.get("is_actively_trading", True),
+                progress_callback=fmp_progress,
+            )
+        else:
+            # Use standard filtered fetch
+            universe = client.get_universe_from_config()
+
+        print()
+        print_success(f"FMP fetch complete: {len(universe)} stocks")
 
     else:
         # yfinance source
@@ -884,6 +909,8 @@ def print_menu(config: Config, state: PipelineState) -> None:
     print(c("  Current Settings:", Colors.BOLD))
     print(f"    Source:      {c(config.source.upper(), Colors.GREEN)}")
     if config.source == "fmp":
+        mode = "Full Universe (iterative)" if config.full_universe else "Filtered"
+        print(f"    Mode:        {c(mode, Colors.GREEN)}")
         if config.market_cap_min:
             print(f"    Market Cap:  {c(format_number(config.market_cap_min) + '+', Colors.GREEN)}")
         if config.config_file:
@@ -940,9 +967,12 @@ def print_settings_menu(config: Config) -> None:
         mode = "Full" if config.full else f"Sample ({config.sample_size})"
         print(f"    {c('6', Colors.YELLOW)}  Universe Mode      [{c(mode, Colors.GREEN)}]")
     else:
-        mcap = format_number(config.market_cap_min) if config.market_cap_min else "None"
-        print(f"    {c('6', Colors.YELLOW)}  Market Cap Min     [{c(mcap, Colors.GREEN)}]")
-        print(f"    {c('7', Colors.YELLOW)}  Config File        [{c(config.config_file or 'default', Colors.GREEN)}]")
+        # FMP settings
+        mode = "Full (iterative)" if config.full_universe else "Filtered"
+        print(f"    {c('6', Colors.YELLOW)}  Universe Mode      [{c(mode, Colors.GREEN)}]")
+        mcap = format_number(config.market_cap_min) if config.market_cap_min else "None (all)"
+        print(f"    {c('7', Colors.YELLOW)}  Market Cap Min     [{c(mcap, Colors.GREEN)}]")
+        print(f"    {c('8', Colors.YELLOW)}  Config File        [{c(config.config_file or 'default', Colors.GREEN)}]")
     print()
     print(f"    {c('0', Colors.YELLOW)}  Back to main menu")
     print()
@@ -1025,21 +1055,39 @@ def handle_settings(config: Config) -> None:
                 else:
                     print_error("Invalid choice")
             else:
+                # FMP: Toggle full universe mode
                 print()
-                print(f"    Current: {format_number(config.market_cap_min) if config.market_cap_min else 'None'}")
-                new_val = input("    New value (USD, or 'none'): ").strip().lower()
-                if new_val == "none":
-                    config.market_cap_min = None
-                    print_success("Market cap min cleared")
+                print(f"    Current: {'Full (iterative)' if config.full_universe else 'Filtered'}")
+                print("    Options: full (all stocks via iterative fetch), filtered (use market cap filter)")
+                new_val = input("    New value: ").strip().lower()
+                if new_val == "full":
+                    config.full_universe = True
+                    config.market_cap_min = None  # Clear market cap filter for full universe
+                    config.market_cap_max = None
+                    print_success("Mode set to Full Universe (iterative)")
+                elif new_val == "filtered":
+                    config.full_universe = False
+                    print_success("Mode set to Filtered (use option 7 to set market cap)")
                 else:
-                    try:
-                        # Support shorthand like 1B, 500M
-                        val = new_val.upper().replace("B", "000000000").replace("M", "000000").replace("K", "000")
-                        config.market_cap_min = int(val)
-                        print_success(f"Market cap min set to {format_number(config.market_cap_min)}")
-                    except ValueError:
-                        print_error("Invalid number (use format like 1000000000 or 1B)")
+                    print_error("Invalid choice")
         elif choice == "7" and config.source == "fmp":
+            print()
+            print(f"    Current: {format_number(config.market_cap_min) if config.market_cap_min else 'None (all)'}")
+            print("    Enter value in USD (e.g., 1B, 500M, 1000000000) or 'none'")
+            new_val = input("    New value: ").strip().lower()
+            if new_val == "none" or new_val == "":
+                config.market_cap_min = None
+                print_success("Market cap min cleared (will fetch all)")
+            else:
+                try:
+                    # Support shorthand like 1B, 500M
+                    val = new_val.upper().replace("B", "000000000").replace("M", "000000").replace("K", "000")
+                    config.market_cap_min = int(val)
+                    config.full_universe = False  # Disable full universe when filter is set
+                    print_success(f"Market cap min set to {format_number(config.market_cap_min)}")
+                except ValueError:
+                    print_error("Invalid number (use format like 1000000000 or 1B)")
+        elif choice == "8" and config.source == "fmp":
             print()
             print(f"    Current: {config.config_file or 'default'}")
             print("    Available: default.yaml, sample_filtered.yaml, sample_smallcap.yaml")

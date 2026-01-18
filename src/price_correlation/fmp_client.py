@@ -127,6 +127,7 @@ class FMPClient:
         country: str | None = None,
         is_actively_trading: bool = True,
         limit: int = 10000,
+        progress_callback=None,
     ) -> list[dict]:
         """
         Fetch stocks matching filters using stock screener.
@@ -156,6 +157,8 @@ class FMPClient:
 
         for exchange in target_exchanges:
             params["exchange"] = exchange
+            if progress_callback:
+                progress_callback(f"Fetching {exchange}...")
             logger.info(f"Fetching stocks from {exchange}...")
 
             stocks = self._request("stock-screener", params)
@@ -170,6 +173,8 @@ class FMPClient:
                     stocks = [s for s in stocks if s.get("industry") in industries]
 
                 all_stocks.extend(stocks)
+                if progress_callback:
+                    progress_callback(f"Found {len(stocks)} on {exchange}")
                 logger.info(f"  Found {len(stocks)} stocks on {exchange}")
 
         # Remove duplicates by symbol
@@ -183,6 +188,120 @@ class FMPClient:
 
         logger.info(f"Total unique stocks: {len(unique_stocks)}")
         return unique_stocks
+
+    def get_full_universe_iterative(
+        self,
+        exchanges: list[str] | None = None,
+        sectors: list[str] | None = None,
+        is_actively_trading: bool = True,
+        progress_callback=None,
+    ) -> list[dict]:
+        """
+        Fetch COMPLETE stock universe using iterative market cap ranges.
+
+        This method fetches all stocks by iterating through market cap ranges
+        to avoid hitting API limits. Works best with premium API subscriptions.
+
+        Args:
+            exchanges: Target exchanges (default: NYSE, NASDAQ)
+            sectors: Optional sector filter
+            is_actively_trading: Only include actively trading stocks
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            Complete list of all stocks matching criteria
+        """
+        # Market cap ranges to iterate through (in USD)
+        # Start from mega cap and go down to micro cap
+        market_cap_ranges = [
+            (1_000_000_000_000, None),        # $1T+ (mega cap)
+            (100_000_000_000, 1_000_000_000_000),  # $100B - $1T
+            (50_000_000_000, 100_000_000_000),     # $50B - $100B
+            (10_000_000_000, 50_000_000_000),      # $10B - $50B (large cap)
+            (5_000_000_000, 10_000_000_000),       # $5B - $10B
+            (2_000_000_000, 5_000_000_000),        # $2B - $5B (mid cap)
+            (1_000_000_000, 2_000_000_000),        # $1B - $2B
+            (500_000_000, 1_000_000_000),          # $500M - $1B (small cap)
+            (300_000_000, 500_000_000),            # $300M - $500M
+            (100_000_000, 300_000_000),            # $100M - $300M (micro cap)
+            (50_000_000, 100_000_000),             # $50M - $100M
+            (10_000_000, 50_000_000),              # $10M - $50M (nano cap)
+            (None, 10_000_000),                    # < $10M
+        ]
+
+        all_stocks = []
+        seen_symbols = set()
+        target_exchanges = exchanges or ["NYSE", "NASDAQ"]
+
+        total_ranges = len(market_cap_ranges)
+
+        for idx, (mcap_min, mcap_max) in enumerate(market_cap_ranges):
+            range_label = self._format_mcap_range(mcap_min, mcap_max)
+
+            if progress_callback:
+                progress_callback(f"[{idx+1}/{total_ranges}] Fetching {range_label}...")
+
+            logger.info(f"Fetching market cap range: {range_label}")
+
+            for exchange in target_exchanges:
+                params = {
+                    "limit": 10000,
+                    "exchange": exchange,
+                    "isActivelyTrading": "true" if is_actively_trading else "false",
+                }
+
+                if mcap_min:
+                    params["marketCapMoreThan"] = mcap_min
+                if mcap_max:
+                    params["marketCapLowerThan"] = mcap_max
+
+                try:
+                    stocks = self._request("stock-screener", params)
+
+                    if isinstance(stocks, list):
+                        # Filter by sector if specified
+                        if sectors:
+                            stocks = [s for s in stocks if s.get("sector") in sectors]
+
+                        # Add only unseen stocks
+                        new_count = 0
+                        for stock in stocks:
+                            symbol = stock.get("symbol")
+                            if symbol and symbol not in seen_symbols:
+                                seen_symbols.add(symbol)
+                                all_stocks.append(stock)
+                                new_count += 1
+
+                        if new_count > 0:
+                            logger.info(f"  {exchange} {range_label}: +{new_count} new stocks")
+
+                except Exception as e:
+                    logger.warning(f"Error fetching {exchange} {range_label}: {e}")
+
+        if progress_callback:
+            progress_callback(f"Complete: {len(all_stocks)} total stocks")
+
+        logger.info(f"Total unique stocks fetched: {len(all_stocks)}")
+        return all_stocks
+
+    def _format_mcap_range(self, mcap_min: int | None, mcap_max: int | None) -> str:
+        """Format market cap range for display."""
+        def fmt(val):
+            if val is None:
+                return "∞"
+            if val >= 1_000_000_000_000:
+                return f"${val / 1_000_000_000_000:.0f}T"
+            if val >= 1_000_000_000:
+                return f"${val / 1_000_000_000:.0f}B"
+            if val >= 1_000_000:
+                return f"${val / 1_000_000:.0f}M"
+            return f"${val:,.0f}"
+
+        if mcap_min is None:
+            return f"< {fmt(mcap_max)}"
+        if mcap_max is None:
+            return f"> {fmt(mcap_min)}"
+        return f"{fmt(mcap_min)} - {fmt(mcap_max)}"
 
     def get_universe_from_config(self) -> list[dict]:
         """Fetch universe using filters from config."""
