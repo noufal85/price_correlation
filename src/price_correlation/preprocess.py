@@ -55,8 +55,16 @@ def zscore_normalize(returns: pd.DataFrame) -> pd.DataFrame:
     Z-score normalize each column.
 
     Result: each column has mean ≈ 0, std ≈ 1
+
+    Note: Columns with zero variance are excluded to avoid division by zero.
     """
-    return (returns - returns.mean()) / returns.std()
+    stds = returns.std()
+    # Filter out columns with zero or near-zero variance
+    valid_cols = stds[stds > 1e-10].index
+    returns = returns[valid_cols]
+
+    normalized = (returns - returns.mean()) / returns.std()
+    return normalized
 
 
 def remove_market_factor(
@@ -96,6 +104,7 @@ def preprocess_pipeline(
         2. Compute log returns
         3. Z-score normalize
         4. Optionally remove market factor
+        5. Final cleanup of any remaining NaN/Inf values
     """
     cleaned = clean_price_data(prices, min_history_pct)
     returns = compute_log_returns(cleaned)
@@ -104,5 +113,10 @@ def preprocess_pipeline(
 
     if remove_market:
         normalized = remove_market_factor(normalized)
+
+    # Final cleanup: remove any columns with NaN or Inf
+    # This catches edge cases from z-score normalization
+    normalized = normalized.replace([np.inf, -np.inf], np.nan)
+    normalized = normalized.dropna(axis=1, how="any")
 
     return normalized

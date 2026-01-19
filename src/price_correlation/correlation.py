@@ -38,10 +38,16 @@ def correlation_to_distance(
     Returns:
         NxN distance matrix with diagonal = 0
     """
+    # Clip correlations to valid range [-1, 1] to avoid NaN in sqrt
+    corr_clipped = np.clip(corr_matrix, -1.0, 1.0)
+
     if method == "sqrt":
-        dist = np.sqrt(2 * (1 - corr_matrix))
+        dist = np.sqrt(2 * (1 - corr_clipped))
     else:
-        dist = 1 - corr_matrix
+        dist = 1 - corr_clipped
+
+    # Handle any remaining NaN/Inf
+    dist = np.nan_to_num(dist, nan=2.0, posinf=2.0, neginf=0.0)
 
     np.fill_diagonal(dist, 0)
     return dist
@@ -52,12 +58,25 @@ def get_condensed_distance(returns_df: pd.DataFrame) -> np.ndarray:
     Compute condensed distance array for scipy hierarchical clustering.
 
     Uses correlation distance directly via pdist.
+    Handles NaN/Inf values by replacing with maximum distance (2.0).
 
     Returns:
         Condensed array of length N*(N-1)/2
     """
     returns_matrix = returns_df.values.T
-    return pdist(returns_matrix, metric="correlation")
+
+    # Compute pairwise correlation distances
+    condensed = pdist(returns_matrix, metric="correlation")
+
+    # Replace NaN and Inf with maximum correlation distance (2.0)
+    # NaN occurs when a stock has zero variance or insufficient overlap
+    # Correlation distance ranges from 0 (perfect correlation) to 2 (perfect anti-correlation)
+    condensed = np.nan_to_num(condensed, nan=2.0, posinf=2.0, neginf=0.0)
+
+    # Clip to valid range [0, 2]
+    condensed = np.clip(condensed, 0.0, 2.0)
+
+    return condensed
 
 
 def get_highly_correlated_pairs(
