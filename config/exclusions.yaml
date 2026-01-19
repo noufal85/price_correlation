@@ -1,0 +1,90 @@
+# Stock Exclusion Configuration
+# ==============================
+# This file defines stocks to exclude from correlation analysis.
+# Exclusions help remove ETFs, index funds, and duplicate share classes
+# that create artificial perfect correlations.
+
+# Auto-fetch settings
+auto_fetch:
+  enabled: true
+  # Fetch ETF list from FMP API
+  fetch_etfs: true
+  # Fetch index list from FMP API
+  fetch_indexes: true
+  # Cache file location (relative to project root)
+  cache_file: "config/exclusion_cache.json"
+  # Cache expiry in hours (0 = never expire, refetch manually)
+  cache_expiry_hours: 168  # 1 week
+
+# Manual exclusion categories
+# These are always excluded regardless of auto-fetch
+
+# Duplicate share classes (same underlying, different voting rights)
+# These will have perfect or near-perfect correlations
+share_classes:
+  # Google
+  - ["GOOGL", "GOOG"]
+  # Berkshire Hathaway
+  - ["BRK-A", "BRK-B"]
+  # News Corp
+  - ["NWSA", "NWS"]
+  # Fox Corporation
+  - ["FOXA", "FOX"]
+  # Discovery
+  - ["DISCA", "DISCB", "DISCK"]
+  # Liberty Media
+  - ["LSXMA", "LSXMB", "LSXMK"]
+  - ["FWONA", "FWONK"]
+  - ["BATRA", "BATRK"]
+  # Zillow
+  - ["Z", "ZG"]
+  # Under Armour
+  - ["UA", "UAA"]
+  # Brown-Forman
+  - ["BF-A", "BF-B"]
+  # Heico
+  - ["HEI", "HEI-A"]
+  # Lennar
+  - ["LEN", "LEN-B"]
+
+# Manually excluded tickers (individual stocks to always exclude)
+manual_excludes:
+  # Add specific tickers here
+  # - "SYMBOL"
+
+# Pattern-based exclusions (regex patterns)
+# Useful for excluding entire categories
+patterns:
+  # Leveraged/Inverse ETFs often have these suffixes
+  - "^[A-Z]+[0-9]X$"      # 2X, 3X leveraged
+  - "^SDS$|^QID$|^DOG$"   # Common inverse ETFs
+  # Preferred shares
+  - "^[A-Z]+-P[A-Z]?$"    # Preferred shares like JPM-PD
+  # Warrants
+  - "^[A-Z]+W$"           # Warrants like SPAC warrants
+  - "^[A-Z]+WS$"
+  # Units
+  - "^[A-Z]+U$"           # SPAC units
+  # Rights
+  - "^[A-Z]+R$"           # Rights offerings
+
+# ETF-specific patterns (backup if auto-fetch fails)
+etf_patterns:
+  # Common ETF suffixes/prefixes
+  - "^SPY$|^QQQ$|^IWM$|^DIA$"  # Major index ETFs
+  - "^VT[A-Z]$"                 # Vanguard ETFs
+  - "^IVV$|^VOO$|^VTI$"        # S&P 500 trackers
+  - "^XL[A-Z]$"                 # Sector SPDRs
+
+# Exclusion behavior settings
+settings:
+  # For share classes, keep the most liquid one (highest volume)
+  # Options: "keep_most_liquid", "keep_first", "exclude_all"
+  share_class_handling: "keep_most_liquid"
+
+  # Log excluded tickers during pipeline run
+  log_exclusions: true
+
+  # Minimum correlation threshold to flag as potential duplicate
+  # (used by the analysis script to find new share classes)
+  duplicate_correlation_threshold: 0.98

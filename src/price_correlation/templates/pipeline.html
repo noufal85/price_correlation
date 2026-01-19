@@ -39,7 +39,15 @@
                         </div>
                     </div>
 
-                    <!-- FMP Filters (shown when FMP mode selected) -->
+                    <!-- FMP All Info (shown when FMP All selected) -->
+                    <div id="fmp-all-info" class="hidden border-t border-gray-200 pt-4">
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
+                            <p class="font-medium">Full Universe Mode</p>
+                            <p class="text-xs mt-1">Fetches all NYSE/NASDAQ stocks using iterative market cap ranges. No filters applied.</p>
+                        </div>
+                    </div>
+
+                    <!-- FMP Filters (shown when FMP Filtered selected) -->
                     <div id="fmp-filters" class="hidden space-y-4 border-t border-gray-200 pt-4">
                         <!-- Market Cap Checkboxes -->
                         <div>
@@ -256,15 +264,23 @@
     // Toggle filters visibility based on data source
     document.querySelectorAll('input[name="data_source"]').forEach(radio => {
         radio.addEventListener('change', function() {
+            const fmpAllInfo = document.getElementById('fmp-all-info');
             const fmpFilters = document.getElementById('fmp-filters');
             const previewBtn = document.getElementById('preview-btn');
             const previewResults = document.getElementById('preview-results');
 
             if (this.value === 'sample') {
+                fmpAllInfo.classList.add('hidden');
                 fmpFilters.classList.add('hidden');
                 previewBtn.classList.add('hidden');
                 previewResults.classList.add('hidden');
+            } else if (this.value === 'fmp_all') {
+                fmpAllInfo.classList.remove('hidden');
+                fmpFilters.classList.add('hidden');
+                previewBtn.classList.remove('hidden');
             } else {
+                // fmp_filtered
+                fmpAllInfo.classList.add('hidden');
                 fmpFilters.classList.remove('hidden');
                 previewBtn.classList.remove('hidden');
             }

@@ -12,6 +12,15 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Database schema name
+DB_SCHEMA = "price_correlation"
+
+# Full table names with schema
+TABLE_EQUITY_CLUSTERS = f"{DB_SCHEMA}.equity_clusters"
+TABLE_PAIR_CORRELATIONS = f"{DB_SCHEMA}.pair_correlations"
+TABLE_ANALYSIS_RUNS = f"{DB_SCHEMA}.analysis_runs"
+TABLE_EXCLUSIONS = f"{DB_SCHEMA}.exclusions"
+
 # Retry configuration
 MAX_RETRIES = 3
 BASE_DELAY = 1.0
@@ -181,7 +190,7 @@ class TimescaleClient:
         try:
             # Delete existing entries for this date
             cursor.execute(
-                "DELETE FROM equity_clusters WHERE analysis_date = %s",
+                f"DELETE FROM {TABLE_EQUITY_CLUSTERS} WHERE analysis_date = %s",
                 (analysis_date,),
             )
 
@@ -195,8 +204,8 @@ class TimescaleClient:
 
             execute_values(
                 cursor,
-                """
-                INSERT INTO equity_clusters (analysis_date, ticker, cluster_id)
+                f"""
+                INSERT INTO {TABLE_EQUITY_CLUSTERS} (analysis_date, ticker, cluster_id)
                 VALUES %s
                 ON CONFLICT (analysis_date, ticker)
                 DO UPDATE SET cluster_id = EXCLUDED.cluster_id
@@ -205,7 +214,7 @@ class TimescaleClient:
             )
 
             conn.commit()
-            logger.info(f"Exported {len(values)} cluster assignments")
+            logger.info(f"Exported {len(values)} rows to {TABLE_EQUITY_CLUSTERS}")
             return len(values)
 
         except Exception as e:
@@ -244,7 +253,7 @@ class TimescaleClient:
         try:
             # Delete existing entries for this date
             cursor.execute(
-                "DELETE FROM pair_correlations WHERE analysis_date = %s",
+                f"DELETE FROM {TABLE_PAIR_CORRELATIONS} WHERE analysis_date = %s",
                 (analysis_date,),
             )
 
@@ -261,15 +270,15 @@ class TimescaleClient:
 
             if not values:
                 conn.commit()
-                logger.info("No correlations above threshold to export")
+                logger.info(f"No correlations above threshold for {TABLE_PAIR_CORRELATIONS}")
                 return 0
 
             from psycopg2.extras import execute_values
 
             execute_values(
                 cursor,
-                """
-                INSERT INTO pair_correlations
+                f"""
+                INSERT INTO {TABLE_PAIR_CORRELATIONS}
                     (analysis_date, ticker_a, ticker_b, correlation)
                 VALUES %s
                 ON CONFLICT (analysis_date, ticker_a, ticker_b)
@@ -279,7 +288,7 @@ class TimescaleClient:
             )
 
             conn.commit()
-            logger.info(f"Exported {len(values)} correlation pairs")
+            logger.info(f"Exported {len(values)} rows to {TABLE_PAIR_CORRELATIONS}")
             return len(values)
 
         except Exception as e:
@@ -309,8 +318,8 @@ class TimescaleClient:
 
         try:
             cursor.execute(
-                """
-                INSERT INTO analysis_runs
+                f"""
+                INSERT INTO {TABLE_ANALYSIS_RUNS}
                     (analysis_date, n_stocks_processed, n_clusters, n_noise,
                      silhouette_score, clustering_method, execution_time_seconds)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -336,7 +345,7 @@ class TimescaleClient:
             )
 
             conn.commit()
-            logger.info(f"Exported run metadata for {analysis_date}")
+            logger.info(f"Exported run metadata to {TABLE_ANALYSIS_RUNS} for {analysis_date}")
 
         except Exception as e:
             conn.rollback()
@@ -430,9 +439,9 @@ def export_to_timescaledb(
 
     try:
         # Export clusters
-        print(f"    Exporting {len(tickers)} cluster assignments...", flush=True)
+        print(f"    Exporting {len(tickers)} cluster assignments to {TABLE_EQUITY_CLUSTERS}...", flush=True)
         clusters_count = client.export_clusters(labels, tickers, analysis_date)
-        print(f"    Clusters exported: {clusters_count}", flush=True)
+        print(f"    {TABLE_EQUITY_CLUSTERS}: {clusters_count} rows", flush=True)
 
         # Export correlations
         n_pairs = len(tickers) * (len(tickers) - 1) // 2
@@ -440,10 +449,10 @@ def export_to_timescaledb(
         corr_count = client.export_correlations(
             corr_matrix, tickers, correlation_threshold, analysis_date
         )
-        print(f"    Correlations exported: {corr_count}", flush=True)
+        print(f"    {TABLE_PAIR_CORRELATIONS}: {corr_count} rows", flush=True)
 
         # Export run metadata
-        print("    Saving run metadata...", flush=True)
+        print(f"    Saving run metadata to {TABLE_ANALYSIS_RUNS}...", flush=True)
         client.export_run_metadata(
             n_stocks_processed=len(tickers),
             n_clusters=n_clusters,

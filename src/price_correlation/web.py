@@ -350,7 +350,7 @@ def get_runs():
         cursor.execute("""
             SELECT analysis_date, n_stocks_processed, n_clusters, n_noise,
                    silhouette_score, clustering_method, execution_time_seconds, created_at
-            FROM analysis_runs
+            FROM price_correlation.analysis_runs
             ORDER BY analysis_date DESC
             LIMIT 50
         """)
@@ -392,13 +392,13 @@ def get_clusters():
         if analysis_date:
             date_filter = analysis_date
         else:
-            cursor.execute("SELECT MAX(analysis_date) FROM equity_clusters")
+            cursor.execute("SELECT MAX(analysis_date) FROM price_correlation.equity_clusters")
             result = cursor.fetchone()
             date_filter = result[0] if result[0] else date.today()
 
         cursor.execute("""
             SELECT ticker, cluster_id
-            FROM equity_clusters
+            FROM price_correlation.equity_clusters
             WHERE analysis_date = %s
             ORDER BY cluster_id, ticker
         """, (date_filter,))
@@ -442,13 +442,13 @@ def get_correlations():
         if analysis_date:
             date_filter = analysis_date
         else:
-            cursor.execute("SELECT MAX(analysis_date) FROM pair_correlations")
+            cursor.execute("SELECT MAX(analysis_date) FROM price_correlation.pair_correlations")
             result = cursor.fetchone()
             date_filter = result[0] if result[0] else date.today()
 
         cursor.execute("""
             SELECT ticker_a, ticker_b, correlation
-            FROM pair_correlations
+            FROM price_correlation.pair_correlations
             WHERE analysis_date = %s AND correlation >= %s
             ORDER BY correlation DESC
             LIMIT %s
@@ -486,7 +486,7 @@ def get_stock_cluster_history(ticker):
         cursor = conn.cursor()
         cursor.execute("""
             SELECT analysis_date, cluster_id
-            FROM equity_clusters
+            FROM price_correlation.equity_clusters
             WHERE ticker = %s
             ORDER BY analysis_date DESC
             LIMIT 30
@@ -524,13 +524,13 @@ def get_stock_correlations(ticker):
         cursor = conn.cursor()
 
         # Get latest date
-        cursor.execute("SELECT MAX(analysis_date) FROM pair_correlations")
+        cursor.execute("SELECT MAX(analysis_date) FROM price_correlation.pair_correlations")
         result = cursor.fetchone()
         date_filter = result[0] if result[0] else date.today()
 
         cursor.execute("""
             SELECT ticker_a, ticker_b, correlation
-            FROM pair_correlations
+            FROM price_correlation.pair_correlations
             WHERE analysis_date = %s AND (ticker_a = %s OR ticker_b = %s)
             ORDER BY correlation DESC
             LIMIT %s
@@ -568,13 +568,13 @@ def get_cluster_stocks(cluster_id):
         cursor = conn.cursor()
 
         # Get latest date
-        cursor.execute("SELECT MAX(analysis_date) FROM equity_clusters")
+        cursor.execute("SELECT MAX(analysis_date) FROM price_correlation.equity_clusters")
         result = cursor.fetchone()
         date_filter = result[0] if result[0] else date.today()
 
         cursor.execute("""
             SELECT ticker
-            FROM equity_clusters
+            FROM price_correlation.equity_clusters
             WHERE analysis_date = %s AND cluster_id = %s
             ORDER BY ticker
         """, (date_filter, cluster_id))
@@ -720,13 +720,13 @@ def chart_cluster_sizes():
     try:
         cursor = conn.cursor()
 
-        cursor.execute("SELECT MAX(analysis_date) FROM equity_clusters")
+        cursor.execute("SELECT MAX(analysis_date) FROM price_correlation.equity_clusters")
         result = cursor.fetchone()
         date_filter = result[0] if result[0] else date.today()
 
         cursor.execute("""
             SELECT cluster_id, COUNT(*) as size
-            FROM equity_clusters
+            FROM price_correlation.equity_clusters
             WHERE analysis_date = %s
             GROUP BY cluster_id
             ORDER BY size DESC
@@ -764,13 +764,13 @@ def chart_correlation_distribution():
     try:
         cursor = conn.cursor()
 
-        cursor.execute("SELECT MAX(analysis_date) FROM pair_correlations")
+        cursor.execute("SELECT MAX(analysis_date) FROM price_correlation.pair_correlations")
         result = cursor.fetchone()
         date_filter = result[0] if result[0] else date.today()
 
         # Get correlations and bin them
         cursor.execute("""
-            SELECT correlation FROM pair_correlations
+            SELECT correlation FROM price_correlation.pair_correlations
             WHERE analysis_date = %s
         """, (date_filter,))
         rows = cursor.fetchall()
@@ -814,7 +814,7 @@ def chart_silhouette_history():
         cursor = conn.cursor()
         cursor.execute("""
             SELECT analysis_date, silhouette_score, n_clusters
-            FROM analysis_runs
+            FROM price_correlation.analysis_runs
             WHERE silhouette_score IS NOT NULL
             ORDER BY analysis_date DESC
             LIMIT 30
@@ -862,7 +862,7 @@ def get_pipeline_history():
                 clustering_method,
                 execution_time_seconds,
                 created_at
-            FROM analysis_runs
+            FROM price_correlation.analysis_runs
             ORDER BY analysis_date DESC
             LIMIT %s
         """, (limit,))
