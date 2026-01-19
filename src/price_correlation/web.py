@@ -841,6 +841,54 @@ def chart_silhouette_history():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/pipeline/history")
+def get_pipeline_history():
+    """Get historical pipeline runs."""
+    limit = request.args.get("limit", 20, type=int)
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database not available", "runs": []}), 503
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                analysis_date,
+                n_stocks_processed,
+                n_clusters,
+                n_noise,
+                silhouette_score,
+                clustering_method,
+                execution_time_seconds,
+                created_at
+            FROM analysis_runs
+            ORDER BY analysis_date DESC
+            LIMIT %s
+        """, (limit,))
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        runs = []
+        for row in rows:
+            runs.append({
+                "date": row[0].isoformat() if row[0] else "",
+                "stocks": row[1] or 0,
+                "clusters": row[2] or 0,
+                "noise": row[3] or 0,
+                "silhouette": round(row[4], 4) if row[4] else None,
+                "method": row[5] or "unknown",
+                "time_seconds": round(row[6], 1) if row[6] else None,
+                "created_at": row[7].isoformat() if row[7] else "",
+            })
+
+        return jsonify({"runs": runs})
+    except Exception as e:
+        logger.error(f"Error fetching pipeline history: {e}")
+        return jsonify({"error": str(e), "runs": []}), 500
+
+
 # =============================================================================
 # API Routes - Cache Control
 # =============================================================================

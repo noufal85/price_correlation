@@ -41,29 +41,32 @@
 
                     <!-- FMP Filters (shown when FMP mode selected) -->
                     <div id="fmp-filters" class="hidden space-y-4 border-t border-gray-200 pt-4">
-                        <!-- Market Cap -->
+                        <!-- Market Cap Checkboxes -->
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Market Cap</label>
-                            <select id="market_cap_preset" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
-                                <option value="all" selected>All Caps (no filter)</option>
-                                <option value="large">Large Cap ($10B+)</option>
-                                <option value="mid">Mid Cap ($2B - $10B)</option>
-                                <option value="small">Small Cap ($300M - $2B)</option>
-                                <option value="micro">Micro Cap (&lt;$300M)</option>
-                                <option value="custom">Custom...</option>
-                            </select>
-                        </div>
-                        <div id="custom-mcap" class="hidden grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="block text-xs text-gray-500 mb-1">Min ($)</label>
-                                <input type="number" id="mcap_min" placeholder="e.g., 1000000000"
-                                       class="w-full border border-gray-300 rounded-md px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Market Cap (select one or more)</label>
+                            <div class="space-y-2">
+                                <label class="flex items-center">
+                                    <input type="checkbox" name="mcap" value="large"
+                                           class="h-4 w-4 text-blue-600 rounded focus:ring-blue-500">
+                                    <span class="ml-2 text-sm text-gray-700">Large Cap ($10B+)</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="checkbox" name="mcap" value="mid"
+                                           class="h-4 w-4 text-blue-600 rounded focus:ring-blue-500">
+                                    <span class="ml-2 text-sm text-gray-700">Mid Cap ($2B - $10B)</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="checkbox" name="mcap" value="small"
+                                           class="h-4 w-4 text-blue-600 rounded focus:ring-blue-500">
+                                    <span class="ml-2 text-sm text-gray-700">Small Cap ($300M - $2B)</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="checkbox" name="mcap" value="micro"
+                                           class="h-4 w-4 text-blue-600 rounded focus:ring-blue-500">
+                                    <span class="ml-2 text-sm text-gray-700">Micro Cap (&lt;$300M)</span>
+                                </label>
                             </div>
-                            <div>
-                                <label class="block text-xs text-gray-500 mb-1">Max ($)</label>
-                                <input type="number" id="mcap_max" placeholder="e.g., 10000000000"
-                                       class="w-full border border-gray-300 rounded-md px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500">
-                            </div>
+                            <p class="text-xs text-gray-500 mt-1">No selection = All market caps</p>
                         </div>
 
                         <!-- Volume -->
@@ -202,15 +205,31 @@
                 </div>
             </div>
 
-            <!-- Logs Card -->
+            <!-- Logs Card with Tabs -->
             <div class="bg-white rounded-lg shadow-md p-6">
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-lg font-semibold text-gray-900">Live Output</h2>
-                    <button onclick="clearLogs()" class="text-sm text-gray-500 hover:text-gray-700">Clear</button>
+                    <div class="flex space-x-4">
+                        <button id="tab-logs" onclick="switchTab('logs')" class="text-lg font-semibold text-blue-600 border-b-2 border-blue-600 pb-1">Live Output</button>
+                        <button id="tab-history" onclick="switchTab('history')" class="text-lg font-semibold text-gray-400 hover:text-gray-600 pb-1">History</button>
+                    </div>
+                    <button id="clear-logs-btn" onclick="clearLogs()" class="text-sm text-gray-500 hover:text-gray-700">Clear</button>
                 </div>
-                <div id="logs-container" class="bg-gray-900 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm">
-                    <div id="logs-content" class="text-gray-300 space-y-1">
-                        <div class="text-gray-500">Waiting for pipeline to start...</div>
+
+                <!-- Logs Panel -->
+                <div id="panel-logs">
+                    <div id="logs-container" class="bg-gray-900 rounded-lg p-4 h-72 overflow-y-auto font-mono text-sm">
+                        <div id="logs-content" class="text-gray-300 space-y-0">
+                            <div class="text-gray-500">Waiting for pipeline to start...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- History Panel -->
+                <div id="panel-history" class="hidden">
+                    <div id="history-container" class="h-72 overflow-y-auto">
+                        <div id="history-content" class="space-y-2">
+                            <div class="text-gray-500 text-center py-8">Loading history...</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -224,10 +243,10 @@
     let pollInterval = null;
     let logIndex = 0;
     let startTime = null;
+    let currentStep = 0;
 
-    // Market cap presets (in dollars)
-    const MCAP_PRESETS = {
-        'all': { min: null, max: null },
+    // Market cap ranges (in dollars)
+    const MCAP_RANGES = {
         'large': { min: 10000000000, max: null },       // $10B+
         'mid': { min: 2000000000, max: 10000000000 },   // $2B - $10B
         'small': { min: 300000000, max: 2000000000 },   // $300M - $2B
@@ -252,12 +271,6 @@
         });
     });
 
-    // Toggle custom market cap inputs
-    document.getElementById('market_cap_preset').addEventListener('change', function() {
-        const customMcap = document.getElementById('custom-mcap');
-        customMcap.classList.toggle('hidden', this.value !== 'custom');
-    });
-
     // Toggle custom volume input
     document.getElementById('volume_preset').addEventListener('change', function() {
         const customVolume = document.getElementById('custom-volume');
@@ -272,17 +285,38 @@
         let filters = {};
 
         if (dataSource !== 'sample') {
-            // Market cap
-            const mcapPreset = document.getElementById('market_cap_preset').value;
-            if (mcapPreset === 'custom') {
-                const mcapMin = document.getElementById('mcap_min').value;
-                const mcapMax = document.getElementById('mcap_max').value;
-                if (mcapMin) filters.market_cap_min = parseInt(mcapMin);
-                if (mcapMax) filters.market_cap_max = parseInt(mcapMax);
-            } else if (mcapPreset !== 'all') {
-                const preset = MCAP_PRESETS[mcapPreset];
-                if (preset.min) filters.market_cap_min = preset.min;
-                if (preset.max) filters.market_cap_max = preset.max;
+            // Market cap - combine selected checkboxes
+            const selectedMcaps = Array.from(document.querySelectorAll('input[name="mcap"]:checked'))
+                .map(cb => cb.value);
+
+            if (selectedMcaps.length > 0) {
+                // Find the combined range (min of mins, max of maxes)
+                let combinedMin = null;
+                let combinedMax = null;
+
+                selectedMcaps.forEach(mcap => {
+                    const range = MCAP_RANGES[mcap];
+                    // For min: use the smallest non-null min
+                    if (range.min !== null) {
+                        if (combinedMin === null || range.min < combinedMin) {
+                            combinedMin = range.min;
+                        }
+                    }
+                    // For max: use the largest max (or null if any is null = unlimited)
+                    if (range.max === null) {
+                        combinedMax = null;
+                    } else if (combinedMax !== null) {
+                        if (range.max > combinedMax) {
+                            combinedMax = range.max;
+                        }
+                    }
+                });
+
+                // Special handling: if micro is selected (max=300M) but nothing smaller exists
+                // and large is selected (min=10B, max=null), we need both ranges
+                // For simplicity, we take the overall min and max
+                if (combinedMin !== null) filters.market_cap_min = combinedMin;
+                if (combinedMax !== null) filters.market_cap_max = combinedMax;
             }
 
             // Volume
@@ -302,6 +336,21 @@
             days: parseInt(document.getElementById('days').value),
             method: document.getElementById('method').value
         };
+    }
+
+    // Get selected market cap labels for display
+    function getSelectedMcapLabels() {
+        const selected = Array.from(document.querySelectorAll('input[name="mcap"]:checked'))
+            .map(cb => {
+                switch(cb.value) {
+                    case 'large': return 'Large';
+                    case 'mid': return 'Mid';
+                    case 'small': return 'Small';
+                    case 'micro': return 'Micro';
+                    default: return cb.value;
+                }
+            });
+        return selected.length > 0 ? selected.join(' + ') + ' Cap' : 'All Caps';
     }
 
     // Preview universe
@@ -327,18 +376,21 @@
                 previewContent.innerHTML = `<div class="text-red-600">${data.error}</div>`;
             } else {
                 const exchanges = Object.entries(data.by_exchange || {})
-                    .map(([ex, count]) => `${ex}: ${count}`)
+                    .map(([ex, count]) => `${ex}: ${count.toLocaleString()}`)
                     .join(' | ');
 
                 const maxStocks = parseInt(document.getElementById('max_stocks').value) || 0;
                 const willProcess = maxStocks > 0 && data.total_count > maxStocks
-                    ? `Will process: ${maxStocks} (limited)`
-                    : `Will process: ${data.total_count}`;
+                    ? `Will process: ${maxStocks.toLocaleString()} (limited)`
+                    : `Will process: ${data.total_count.toLocaleString()}`;
+
+                const mcapLabel = getSelectedMcapLabels();
 
                 previewContent.innerHTML = `
                     <div><strong>Found:</strong> ${data.total_count.toLocaleString()} stocks</div>
                     <div class="text-xs">${exchanges}</div>
-                    <div class="mt-1">${willProcess}</div>
+                    <div class="text-xs text-gray-600">Filter: ${mcapLabel}</div>
+                    <div class="mt-1 font-medium">${willProcess}</div>
                     ${data.sample_tickers ? `<div class="text-xs text-gray-500 mt-1">Sample: ${data.sample_tickers.slice(0,5).join(', ')}...</div>` : ''}
                 `;
             }
@@ -351,6 +403,85 @@
         } finally {
             previewBtn.disabled = false;
             previewBtn.innerHTML = '<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg> Preview Universe';
+        }
+    }
+
+    // Tab switching
+    function switchTab(tab) {
+        const tabLogs = document.getElementById('tab-logs');
+        const tabHistory = document.getElementById('tab-history');
+        const panelLogs = document.getElementById('panel-logs');
+        const panelHistory = document.getElementById('panel-history');
+        const clearBtn = document.getElementById('clear-logs-btn');
+
+        if (tab === 'logs') {
+            tabLogs.className = 'text-lg font-semibold text-blue-600 border-b-2 border-blue-600 pb-1';
+            tabHistory.className = 'text-lg font-semibold text-gray-400 hover:text-gray-600 pb-1';
+            panelLogs.classList.remove('hidden');
+            panelHistory.classList.add('hidden');
+            clearBtn.classList.remove('hidden');
+        } else {
+            tabHistory.className = 'text-lg font-semibold text-blue-600 border-b-2 border-blue-600 pb-1';
+            tabLogs.className = 'text-lg font-semibold text-gray-400 hover:text-gray-600 pb-1';
+            panelHistory.classList.remove('hidden');
+            panelLogs.classList.add('hidden');
+            clearBtn.classList.add('hidden');
+            loadHistory();
+        }
+    }
+
+    // Load historical runs
+    async function loadHistory() {
+        const container = document.getElementById('history-content');
+
+        try {
+            const res = await fetch('/api/pipeline/history?limit=20');
+            const data = await res.json();
+
+            if (data.error && data.runs.length === 0) {
+                container.innerHTML = `<div class="text-gray-500 text-center py-8">${data.error}</div>`;
+                return;
+            }
+
+            if (!data.runs || data.runs.length === 0) {
+                container.innerHTML = '<div class="text-gray-500 text-center py-8">No historical runs found</div>';
+                return;
+            }
+
+            container.innerHTML = data.runs.map(run => `
+                <div class="border border-gray-200 rounded-lg p-3 hover:bg-gray-50 transition">
+                    <div class="flex justify-between items-start mb-2">
+                        <div class="font-medium text-gray-900">${run.date}</div>
+                        <span class="px-2 py-0.5 rounded text-xs font-medium ${
+                            run.silhouette >= 0.3 ? 'bg-green-100 text-green-700' :
+                            run.silhouette >= 0.15 ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-red-100 text-red-700'
+                        }">
+                            ${run.silhouette ? run.silhouette.toFixed(3) : '-'}
+                        </span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 text-sm">
+                        <div>
+                            <span class="text-gray-500">Stocks:</span>
+                            <span class="font-medium ml-1">${run.stocks}</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-500">Clusters:</span>
+                            <span class="font-medium ml-1">${run.clusters}</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-500">Time:</span>
+                            <span class="font-medium ml-1">${run.time_seconds ? run.time_seconds + 's' : '-'}</span>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-400 mt-2">
+                        ${run.method} | ${run.noise} noise points
+                    </div>
+                </div>
+            `).join('');
+
+        } catch (e) {
+            container.innerHTML = `<div class="text-red-500 text-center py-8">Error loading history: ${e.message}</div>`;
         }
     }
 
@@ -375,11 +506,14 @@
             if (res.ok) {
                 startTime = Date.now();
                 logIndex = 0;
+                currentStep = 0;
                 clearLogs();
                 startPolling();
                 updateUIRunning();
                 // Hide preview results when starting
                 document.getElementById('preview-results').classList.add('hidden');
+                // Switch to logs tab
+                switchTab('logs');
             } else {
                 alert(data.error || 'Failed to start pipeline');
             }
@@ -394,7 +528,7 @@
         try {
             const res = await fetch('/api/pipeline/kill', { method: 'POST' });
             const data = await res.json();
-            addLog('Kill requested - waiting for current step to complete...', 'text-yellow-400');
+            addLog({time: new Date().toLocaleTimeString(), message: 'Kill requested - waiting for current step to complete...'}, 'warning');
         } catch (e) {
             alert('Error: ' + e.message);
         }
@@ -435,6 +569,11 @@
             if (data.elapsed_seconds) {
                 document.getElementById('elapsed-time').textContent =
                     'Elapsed: ' + formatDuration(data.elapsed_seconds);
+            }
+
+            // Track step changes for log grouping
+            if (data.current_step !== currentStep) {
+                currentStep = data.current_step;
             }
 
             // Update step indicators
@@ -519,7 +658,7 @@
 
             if (data.logs && data.logs.length > 0) {
                 data.logs.forEach(log => {
-                    addLog(`[${log.time}] ${log.message}`);
+                    addLog(log);
                 });
                 logIndex = data.total;
             }
@@ -528,11 +667,48 @@
         }
     }
 
-    function addLog(message, colorClass = 'text-gray-300') {
+    function addLog(log, type = 'info') {
         const container = document.getElementById('logs-content');
         const line = document.createElement('div');
-        line.className = colorClass;
-        line.textContent = message;
+
+        // Determine log type from content
+        const msg = log.message || log;
+        let logType = type;
+        if (msg.includes('Step ') && msg.includes(':')) {
+            logType = 'step';
+        } else if (msg.includes('Error') || msg.includes('error') || msg.includes('failed')) {
+            logType = 'error';
+        } else if (msg.includes('Warning') || msg.includes('warning') || msg.includes('Kill')) {
+            logType = 'warning';
+        } else if (msg.includes('COMPLETED') || msg.includes('Success') || msg.includes('Saved')) {
+            logType = 'success';
+        } else if (msg.startsWith('  ')) {
+            logType = 'detail';
+        }
+
+        // Style based on type
+        switch (logType) {
+            case 'step':
+                line.className = 'text-cyan-400 font-semibold mt-3 mb-1 border-t border-gray-700 pt-2';
+                break;
+            case 'error':
+                line.className = 'text-red-400';
+                break;
+            case 'warning':
+                line.className = 'text-yellow-400';
+                break;
+            case 'success':
+                line.className = 'text-green-400 font-medium';
+                break;
+            case 'detail':
+                line.className = 'text-gray-400 pl-4';
+                break;
+            default:
+                line.className = 'text-gray-300';
+        }
+
+        const time = log.time || '';
+        line.innerHTML = `<span class="text-gray-500">[${time}]</span> ${escapeHtml(msg)}`;
         container.appendChild(line);
 
         // Auto-scroll
@@ -540,10 +716,17 @@
         logsContainer.scrollTop = logsContainer.scrollHeight;
     }
 
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     function clearLogs() {
         document.getElementById('logs-content').innerHTML =
             '<div class="text-gray-500">Pipeline starting...</div>';
         logIndex = 0;
+        currentStep = 0;
     }
 
     function updateUIRunning() {
@@ -621,7 +804,7 @@
                 // Clear the "waiting" message
                 document.getElementById('logs-content').innerHTML = '';
                 data.logs.forEach(log => {
-                    addLog(`[${log.time}] ${log.message}`);
+                    addLog(log);
                 });
                 logIndex = data.total;
             }
