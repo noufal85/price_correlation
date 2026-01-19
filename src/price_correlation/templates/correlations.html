@@ -44,6 +44,34 @@
         </div>
     </div>
 
+    <!-- Comparison Chart Modal -->
+    <div id="compare-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl w-11/12 max-w-4xl max-h-[90vh] overflow-hidden">
+            <div class="flex justify-between items-center border-b px-6 py-4">
+                <h3 id="compare-title" class="text-lg font-semibold text-gray-900">Compare Stocks</h3>
+                <button id="close-compare" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            </div>
+            <div class="p-6">
+                <div class="h-80">
+                    <canvas id="compare-chart"></canvas>
+                </div>
+                <div class="mt-4 grid grid-cols-2 gap-4 text-sm">
+                    <div id="stock-a-stats" class="p-3 bg-blue-50 rounded">
+                        <span id="stock-a-name" class="font-semibold text-blue-700">-</span>
+                        <div class="text-gray-600 mt-1">Return: <span id="stock-a-return">-</span></div>
+                    </div>
+                    <div id="stock-b-stats" class="p-3 bg-green-50 rounded">
+                        <span id="stock-b-name" class="font-semibold text-green-700">-</span>
+                        <div class="text-gray-600 mt-1">Return: <span id="stock-b-return">-</span></div>
+                    </div>
+                </div>
+                <div id="compare-correlation" class="mt-4 text-center text-gray-600">
+                    Correlation: <span class="font-semibold">-</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Correlation Table -->
     <div class="bg-white rounded-lg shadow-md p-6">
         <h2 class="text-lg font-semibold text-gray-900 mb-4">Correlated Pairs</h2>
@@ -122,8 +150,12 @@
                                 </div>
                             </td>
                             <td class="py-3 text-center">
-                                <a href="/stock/${p.ticker_a}" class="text-xs text-blue-600 hover:underline mr-2">View A</a>
-                                <a href="/stock/${p.ticker_b}" class="text-xs text-blue-600 hover:underline">View B</a>
+                                <button onclick="comparePair('${p.ticker_a}', '${p.ticker_b}', ${p.correlation})"
+                                        class="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 mr-2">
+                                    Compare
+                                </button>
+                                <a href="/stock/${p.ticker_a}" class="text-xs text-blue-600 hover:underline mr-1">${p.ticker_a}</a>
+                                <a href="/stock/${p.ticker_b}" class="text-xs text-blue-600 hover:underline">${p.ticker_b}</a>
                             </td>
                         </tr>
                     `;
@@ -196,5 +228,147 @@
 
     // Initialize
     loadCorrelations();
+
+    // Comparison chart
+    let compareChart = null;
+
+    async function comparePair(tickerA, tickerB, correlation) {
+        const modal = document.getElementById('compare-modal');
+        modal.classList.remove('hidden');
+
+        document.getElementById('compare-title').textContent = `${tickerA} vs ${tickerB}`;
+        document.getElementById('stock-a-name').textContent = tickerA;
+        document.getElementById('stock-b-name').textContent = tickerB;
+        document.getElementById('compare-correlation').querySelector('span').textContent = correlation.toFixed(4);
+
+        try {
+            // Fetch price data for both stocks
+            const [resA, resB] = await Promise.all([
+                fetch(`/api/stock/${tickerA}/prices`),
+                fetch(`/api/stock/${tickerB}/prices`)
+            ]);
+
+            const dataA = await resA.json();
+            const dataB = await resB.json();
+
+            if (!dataA.prices || !dataB.prices) {
+                console.error('No price data available');
+                return;
+            }
+
+            // Normalize prices to percentage return from start
+            const pricesA = dataA.prices;
+            const pricesB = dataB.prices;
+
+            const startA = pricesA[0].price;
+            const startB = pricesB[0].price;
+            const endA = pricesA[pricesA.length - 1].price;
+            const endB = pricesB[pricesB.length - 1].price;
+
+            const returnA = ((endA - startA) / startA * 100).toFixed(1);
+            const returnB = ((endB - startB) / startB * 100).toFixed(1);
+
+            document.getElementById('stock-a-return').textContent = `${returnA}%`;
+            document.getElementById('stock-b-return').textContent = `${returnB}%`;
+
+            // Normalize both to start at 100 for easier comparison
+            const normalizedA = pricesA.map(p => ({
+                date: p.date,
+                value: (p.price / startA) * 100
+            }));
+            const normalizedB = pricesB.map(p => ({
+                date: p.date,
+                value: (p.price / startB) * 100
+            }));
+
+            // Create chart
+            const ctx = document.getElementById('compare-chart').getContext('2d');
+            if (compareChart) compareChart.destroy();
+
+            compareChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: normalizedA.map(p => p.date),
+                    datasets: [
+                        {
+                            label: tickerA,
+                            data: normalizedA.map(p => p.value),
+                            borderColor: 'rgba(59, 130, 246, 1)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: false
+                        },
+                        {
+                            label: tickerB,
+                            data: normalizedB.map(p => p.value),
+                            borderColor: 'rgba(34, 197, 94, 1)',
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${(context.raw - 100).toFixed(1)}%`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            ticks: {
+                                maxTicksLimit: 10
+                            }
+                        },
+                        y: {
+                            display: true,
+                            title: {
+                                display: true,
+                                text: 'Indexed Price (Start = 100)'
+                            }
+                        }
+                    }
+                }
+            });
+
+        } catch (e) {
+            console.error('Error loading comparison data:', e);
+        }
+    }
+
+    // Close modal handlers
+    document.getElementById('close-compare').addEventListener('click', () => {
+        document.getElementById('compare-modal').classList.add('hidden');
+    });
+
+    document.getElementById('compare-modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) {
+            document.getElementById('compare-modal').classList.add('hidden');
+        }
+    });
+
+    // Close on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            document.getElementById('compare-modal').classList.add('hidden');
+        }
+    });
 </script>
 {% endblock %}

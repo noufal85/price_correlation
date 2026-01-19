@@ -7,7 +7,7 @@ from pathlib import Path
 from .clustering import auto_cluster, cluster_dbscan, cluster_hierarchical, cut_dendrogram, find_optimal_eps, find_optimal_k
 from .correlation import compute_correlation_matrix, correlation_to_distance, get_condensed_distance
 from .export import export_all
-from .ingestion import fetch_price_history
+from .ingestion import fetch_price_history_cached
 from .preprocess import preprocess_pipeline
 from .universe import get_full_universe, get_sample_tickers
 from .validation import compute_cluster_stats, compute_silhouette, generate_tsne_plot, print_cluster_summary
@@ -140,14 +140,20 @@ def run_pipeline(config: PipelineConfig | dict | None = None) -> dict:
 
     print(f"  Universe: {len(tickers)} tickers", flush=True)
 
-    print("Step 2: Fetching price data...")
-    prices = fetch_price_history(
+    print("Step 2: Fetching price data...", flush=True)
+
+    def price_progress(current: int, total: int, message: str):
+        """Progress callback for price fetching."""
+        print(f"  [Price Fetch] {message}", flush=True)
+
+    prices = fetch_price_history_cached(
         tickers,
         start_date=config.start_date,
         end_date=config.end_date,
         period_months=config.period_months,
+        progress_callback=price_progress,
     )
-    print(f"  Fetched: {prices.shape[1]} tickers, {prices.shape[0]} days")
+    print(f"  Fetched: {prices.shape[1]} tickers, {prices.shape[0]} days", flush=True)
 
     print("Step 3: Preprocessing...")
     returns = preprocess_pipeline(

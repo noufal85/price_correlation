@@ -475,6 +475,49 @@ def get_correlations():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/stock/<ticker>/prices")
+def get_stock_prices(ticker):
+    """Get price history for a stock."""
+    import yfinance as yf
+    from datetime import datetime, timedelta
+
+    # Get period from query params (default 18 months)
+    months = int(request.args.get("months", 18))
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=months * 30)
+
+    try:
+        data = yf.download(
+            ticker.upper(),
+            start=start_date.strftime("%Y-%m-%d"),
+            end=end_date.strftime("%Y-%m-%d"),
+            auto_adjust=True,
+            progress=False,
+        )
+
+        if data.empty:
+            return jsonify({"error": "No price data found", "ticker": ticker}), 404
+
+        prices = []
+        for date, row in data.iterrows():
+            prices.append({
+                "date": date.strftime("%Y-%m-%d"),
+                "price": round(float(row["Close"]), 2),
+            })
+
+        return jsonify({
+            "ticker": ticker.upper(),
+            "prices": prices,
+            "start_date": prices[0]["date"] if prices else None,
+            "end_date": prices[-1]["date"] if prices else None,
+            "count": len(prices),
+        })
+
+    except Exception as e:
+        logger.error(f"Error fetching prices for {ticker}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/stock/<ticker>/cluster-history")
 def get_stock_cluster_history(ticker):
     """Get cluster history for a stock."""

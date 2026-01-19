@@ -101,19 +101,41 @@ def cut_dendrogram(
 def find_optimal_k(
     Z: np.ndarray,
     distance_matrix: np.ndarray,
-    max_k: int = 30,
+    max_k: int | None = None,
     min_k: int = 2,
 ) -> tuple[int, float]:
     """
     Find optimal cluster count using silhouette score.
 
+    Args:
+        Z: Linkage matrix from hierarchical clustering
+        distance_matrix: NxN distance matrix
+        max_k: Maximum clusters to try (default: min(100, sqrt(n)*2))
+        min_k: Minimum clusters to try
+
     Returns:
         (best_k, best_score)
     """
+    n_samples = distance_matrix.shape[0]
+
+    # Scale max_k based on dataset size
+    if max_k is None:
+        # Use sqrt(n) * 2 as a reasonable upper bound, capped at 100
+        max_k = min(100, max(30, int(np.sqrt(n_samples) * 2)))
+
     best_k = min_k
     best_score = -1.0
 
-    for k in range(min_k, max_k + 1):
+    # For large datasets, evaluate fewer k values to speed up
+    if n_samples > 500:
+        # Sample k values instead of trying every one
+        k_values = list(range(min_k, min(20, max_k + 1)))  # Always check 2-20
+        k_values.extend(range(20, max_k + 1, 5))  # Then sample every 5
+        k_values = sorted(set(k_values))
+    else:
+        k_values = list(range(min_k, max_k + 1))
+
+    for k in k_values:
         labels = fcluster(Z, t=k, criterion="maxclust")
         n_clusters = len(set(labels))
 

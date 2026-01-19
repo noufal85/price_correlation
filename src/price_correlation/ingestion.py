@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime, timedelta
+from typing import Callable
 
 import pandas as pd
 import yfinance as yf
@@ -16,12 +17,17 @@ from .cache import (
 
 logger = logging.getLogger(__name__)
 
+# Default batch size for fetching prices
+DEFAULT_BATCH_SIZE = 50
+
 
 def fetch_price_history(
     tickers: list[str],
     start_date: str | None = None,
     end_date: str | None = None,
     period_months: int = 18,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+    batch_size: int = DEFAULT_BATCH_SIZE,
 ) -> pd.DataFrame:
     """
     Fetch adjusted close prices for multiple tickers.
@@ -31,6 +37,8 @@ def fetch_price_history(
         start_date: Start date as "YYYY-MM-DD" (optional)
         end_date: End date as "YYYY-MM-DD" (optional)
         period_months: Lookback period if dates not specified
+        progress_callback: Optional callback(current, total, message) for progress updates
+        batch_size: Number of tickers to fetch per batch
 
     Returns:
         DataFrame with dates as index and tickers as columns
@@ -43,20 +51,87 @@ def fetch_price_history(
         start_dt = end_dt - timedelta(days=period_months * 30)
         start_date = start_dt.strftime("%Y-%m-%d")
 
-    data = yf.download(
-        tickers,
-        start=start_date,
-        end=end_date,
-        auto_adjust=True,
-        progress=False,
-        threads=True,
-    )
+    total_tickers = len(tickers)
 
-    if isinstance(data.columns, pd.MultiIndex):
-        prices = data["Close"]
-    else:
-        prices = data[["Close"]]
-        prices.columns = tickers
+    # For small lists, fetch all at once
+    if total_tickers <= batch_size:
+        if progress_callback:
+            progress_callback(0, total_tickers, f"Fetching {total_tickers} tickers...")
+
+        data = yf.download(
+            tickers,
+            start=start_date,
+            end=end_date,
+            auto_adjust=True,
+            progress=False,
+            threads=True,
+        )
+
+        if progress_callback:
+            progress_callback(total_tickers, total_tickers, f"Fetched {total_tickers} tickers")
+
+        if isinstance(data.columns, pd.MultiIndex):
+            prices = data["Close"]
+        else:
+            prices = data[["Close"]]
+            prices.columns = tickers
+
+        return prices
+
+    # For larger lists, fetch in batches with progress reporting
+    all_prices = []
+    fetched = 0
+    failed_tickers = []
+
+    for i in range(0, total_tickers, batch_size):
+        batch = tickers[i:i + batch_size]
+        batch_num = i // batch_size + 1
+        total_batches = (total_tickers + batch_size - 1) // batch_size
+
+        if progress_callback:
+            pct = int((fetched / total_tickers) * 100)
+            progress_callback(
+                fetched,
+                total_tickers,
+                f"Batch {batch_num}/{total_batches}: Fetching {len(batch)} tickers ({pct}%)"
+            )
+
+        try:
+            data = yf.download(
+                batch,
+                start=start_date,
+                end=end_date,
+                auto_adjust=True,
+                progress=False,
+                threads=True,
+            )
+
+            if not data.empty:
+                if isinstance(data.columns, pd.MultiIndex):
+                    batch_prices = data["Close"]
+                else:
+                    batch_prices = data[["Close"]]
+                    batch_prices.columns = batch
+                all_prices.append(batch_prices)
+
+            fetched += len(batch)
+
+        except Exception as e:
+            logger.warning(f"Batch {batch_num} failed: {e}")
+            failed_tickers.extend(batch)
+            fetched += len(batch)
+
+    if progress_callback:
+        msg = f"Downloaded {fetched} tickers"
+        if failed_tickers:
+            msg += f" ({len(failed_tickers)} failed)"
+        progress_callback(total_tickers, total_tickers, msg)
+
+    if not all_prices:
+        return pd.DataFrame()
+
+    # Combine all batches
+    prices = pd.concat(all_prices, axis=1)
 
     return prices
 
@@ -92,6 +167,7 @@ def fetch_price_history_cached(
     start_date: str | None = None,
     end_date: str | None = None,
     period_months: int = 18,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> pd.DataFrame:
     """
     Fetch adjusted close prices with Redis caching.
@@ -121,7 +197,10 @@ def fetch_price_history_cached(
 
     # Cache miss - fetch from API
     logger.info(f"Cache miss - fetching {len(tickers)} tickers from API")
-    prices = fetch_price_history(tickers, start_date, end_date, period_months)
+    prices = fetch_price_history(
+        tickers, start_date, end_date, period_months,
+        progress_callback=progress_callback
+    )
 
     # Store in cache
     if cache and cache.is_connected:
