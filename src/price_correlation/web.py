@@ -272,6 +272,17 @@ def preview_universe():
     data_source = data.get("data_source", "fmp_filtered")
     filters = data.get("filters", {})
 
+    # Handle sample data source directly
+    if data_source == "sample":
+        from .universe import get_sample_tickers
+        sample_tickers = get_sample_tickers(50)
+        return jsonify({
+            "total_count": len(sample_tickers),
+            "by_exchange": {"Sample": len(sample_tickers)},
+            "filters_applied": {},
+            "sample_tickers": sample_tickers[:10],
+        })
+
     # Check for FMP API key
     api_key = get_fmp_api_key()
     if not api_key:
