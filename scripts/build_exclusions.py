@@ -218,7 +218,7 @@ def build_exclusion_cache(
         logger.warning("No API key or auto-fetch disabled, using patterns only")
 
     # Get manual exclusions
-    manual_excludes = set(config.get("manual_excludes", []))
+    manual_excludes = set(config.get("manual_excludes") or [])
 
     # Get share class exclusions
     share_class_excludes, share_class_groups = get_share_class_exclusions(config)

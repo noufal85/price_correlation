@@ -12,7 +12,8 @@ auto_fetch:
   # Fetch index list from FMP API
   fetch_indexes: true
   # Cache file location (relative to project root)
-  cache_file: "config/exclusion_cache.json"
+  # Note: Use output/ for Docker (writable volume)
+  cache_file: "output/exclusion_cache.json"
   # Cache expiry in hours (0 = never expire, refetch manually)
   cache_expiry_hours: 168  # 1 week
 

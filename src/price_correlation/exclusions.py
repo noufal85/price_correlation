@@ -17,8 +17,9 @@ logger = logging.getLogger(__name__)
 # Default paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 CONFIG_DIR = PROJECT_ROOT / "config"
+OUTPUT_DIR = PROJECT_ROOT / "output"
 EXCLUSIONS_CONFIG = CONFIG_DIR / "exclusions.yaml"
-DEFAULT_CACHE_FILE = CONFIG_DIR / "exclusion_cache.json"
+DEFAULT_CACHE_FILE = OUTPUT_DIR / "exclusion_cache.json"
 
 
 class ExclusionManager:
