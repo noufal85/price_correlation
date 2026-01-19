@@ -195,7 +195,7 @@ class FMPClient:
         sectors: list[str] | None = None,
         is_actively_trading: bool = True,
         progress_callback=None,
-        split_threshold: int = 500,
+        split_threshold: int = 475,
     ) -> list[dict]:
         """
         Fetch COMPLETE stock universe using iterative market cap ranges.
@@ -413,6 +413,92 @@ class FMPClient:
             country=filters.get("country"),
             is_actively_trading=filters.get("is_actively_trading", True),
         )
+
+    def preview_universe(
+        self,
+        data_source: str = "fmp_filtered",
+        market_cap_min: int | None = None,
+        market_cap_max: int | None = None,
+        volume_min: int | None = None,
+        volume_max: int | None = None,
+        exchanges: list[str] | None = None,
+        progress_callback=None,
+    ) -> dict:
+        """
+        Preview universe count without fetching prices.
+
+        Args:
+            data_source: "fmp_all" or "fmp_filtered"
+            market_cap_min: Minimum market cap filter
+            market_cap_max: Maximum market cap filter
+            volume_min: Minimum volume filter
+            volume_max: Maximum volume filter
+            exchanges: Target exchanges
+            progress_callback: Optional callback for progress
+
+        Returns:
+            Dictionary with count, exchange breakdown, and sample tickers
+        """
+        target_exchanges = exchanges or ["NYSE", "NASDAQ"]
+
+        if data_source == "fmp_all":
+            # Use iterative fetching for full universe
+            stocks = self.get_full_universe_iterative(
+                exchanges=target_exchanges,
+                progress_callback=progress_callback,
+                split_threshold=475,
+            )
+        else:
+            # Use filtered screener
+            stocks = self.get_stock_screener(
+                market_cap_min=market_cap_min,
+                market_cap_max=market_cap_max,
+                volume_min=volume_min,
+                volume_max=volume_max,
+                exchanges=target_exchanges,
+                progress_callback=progress_callback,
+            )
+
+        # Count by exchange
+        by_exchange = {}
+        for stock in stocks:
+            ex = stock.get("exchangeShortName") or stock.get("exchange", "Unknown")
+            by_exchange[ex] = by_exchange.get(ex, 0) + 1
+
+        # Build filter description
+        filters_applied = {}
+        if market_cap_min or market_cap_max:
+            if market_cap_min and market_cap_max:
+                filters_applied["market_cap"] = f"${self._format_number(market_cap_min)} - ${self._format_number(market_cap_max)}"
+            elif market_cap_min:
+                filters_applied["market_cap"] = f">= ${self._format_number(market_cap_min)}"
+            else:
+                filters_applied["market_cap"] = f"<= ${self._format_number(market_cap_max)}"
+        if volume_min:
+            filters_applied["volume"] = f">= {self._format_number(volume_min)}"
+
+        # Sample tickers (first 10)
+        sample_tickers = [s["symbol"] for s in stocks[:10]]
+
+        return {
+            "total_count": len(stocks),
+            "by_exchange": by_exchange,
+            "filters_applied": filters_applied,
+            "sample_tickers": sample_tickers,
+            "stocks": stocks,  # Include full list for pipeline use
+        }
+
+    def _format_number(self, val: int) -> str:
+        """Format number for display (e.g., 10B, 500M)."""
+        if val >= 1_000_000_000_000:
+            return f"{val / 1_000_000_000_000:.0f}T"
+        if val >= 1_000_000_000:
+            return f"{val / 1_000_000_000:.0f}B"
+        if val >= 1_000_000:
+            return f"{val / 1_000_000:.0f}M"
+        if val >= 1_000:
+            return f"{val / 1_000:.0f}K"
+        return str(val)
 
     def get_historical_prices(
         self,

@@ -17,18 +17,81 @@
             <div class="bg-white rounded-lg shadow-md p-6">
                 <h2 class="text-lg font-semibold text-gray-900 mb-4">Configuration</h2>
                 <form id="pipeline-config" class="space-y-4">
+                    <!-- Data Source -->
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Data Source</label>
-                        <select name="use_sample" id="use_sample" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
-                            <option value="false">Full Universe</option>
-                            <option value="true" selected>Sample (faster)</option>
-                        </select>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Data Source</label>
+                        <div class="space-y-2">
+                            <label class="flex items-center">
+                                <input type="radio" name="data_source" value="sample" checked
+                                       class="h-4 w-4 text-blue-600 focus:ring-blue-500">
+                                <span class="ml-2 text-sm text-gray-700">Sample (50 popular stocks)</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="radio" name="data_source" value="fmp_all"
+                                       class="h-4 w-4 text-blue-600 focus:ring-blue-500">
+                                <span class="ml-2 text-sm text-gray-700">FMP All Stocks (no filter)</span>
+                            </label>
+                            <label class="flex items-center">
+                                <input type="radio" name="data_source" value="fmp_filtered"
+                                       class="h-4 w-4 text-blue-600 focus:ring-blue-500">
+                                <span class="ml-2 text-sm text-gray-700">FMP Filtered (custom)</span>
+                            </label>
+                        </div>
                     </div>
-                    <div id="sample-size-group">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Sample Size</label>
-                        <input type="number" name="sample_size" id="sample_size" value="50" min="10" max="500"
+
+                    <!-- FMP Filters (shown when FMP mode selected) -->
+                    <div id="fmp-filters" class="hidden space-y-4 border-t border-gray-200 pt-4">
+                        <!-- Market Cap -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Market Cap</label>
+                            <select id="market_cap_preset" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="all" selected>All Caps (no filter)</option>
+                                <option value="large">Large Cap ($10B+)</option>
+                                <option value="mid">Mid Cap ($2B - $10B)</option>
+                                <option value="small">Small Cap ($300M - $2B)</option>
+                                <option value="micro">Micro Cap (&lt;$300M)</option>
+                                <option value="custom">Custom...</option>
+                            </select>
+                        </div>
+                        <div id="custom-mcap" class="hidden grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Min ($)</label>
+                                <input type="number" id="mcap_min" placeholder="e.g., 1000000000"
+                                       class="w-full border border-gray-300 rounded-md px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Max ($)</label>
+                                <input type="number" id="mcap_max" placeholder="e.g., 10000000000"
+                                       class="w-full border border-gray-300 rounded-md px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500">
+                            </div>
+                        </div>
+
+                        <!-- Volume -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Min Daily Volume</label>
+                            <select id="volume_preset" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="0" selected>Any (no filter)</option>
+                                <option value="100000">100K+</option>
+                                <option value="500000">500K+</option>
+                                <option value="1000000">1M+</option>
+                                <option value="custom">Custom...</option>
+                            </select>
+                        </div>
+                        <div id="custom-volume" class="hidden">
+                            <label class="block text-xs text-gray-500 mb-1">Min Volume</label>
+                            <input type="number" id="volume_min" placeholder="e.g., 250000"
+                                   class="w-full border border-gray-300 rounded-md px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                    </div>
+
+                    <!-- Max Stocks -->
+                    <div id="max-stocks-group">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Max Stocks (0 = no limit)</label>
+                        <input type="number" id="max_stocks" value="200" min="0" max="5000"
                                class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
                     </div>
+
+                    <!-- History -->
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">History (days)</label>
                         <select name="days" id="days" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
@@ -38,6 +101,8 @@
                             <option value="540">540 days (18 months)</option>
                         </select>
                     </div>
+
+                    <!-- Clustering Method -->
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Clustering Method</label>
                         <select name="method" id="method" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500">
@@ -51,6 +116,21 @@
             <!-- Control Buttons -->
             <div class="bg-white rounded-lg shadow-md p-6">
                 <div class="space-y-3">
+                    <!-- Preview Button (shown for FMP modes) -->
+                    <button id="preview-btn" onclick="previewUniverse()"
+                            class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 px-4 rounded-lg transition hidden flex items-center justify-center">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                        Preview Universe
+                    </button>
+
+                    <!-- Preview Results -->
+                    <div id="preview-results" class="hidden bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
+                        <div class="font-medium text-blue-800 mb-2">Preview Result:</div>
+                        <div id="preview-content" class="text-blue-700 space-y-1"></div>
+                    </div>
+
                     <button id="run-btn" onclick="runPipeline()"
                             class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition flex items-center justify-center">
                         <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -145,11 +225,134 @@
     let logIndex = 0;
     let startTime = null;
 
-    // Toggle sample size visibility
-    document.getElementById('use_sample').addEventListener('change', function() {
-        const sampleGroup = document.getElementById('sample-size-group');
-        sampleGroup.style.display = this.value === 'true' ? 'block' : 'none';
+    // Market cap presets (in dollars)
+    const MCAP_PRESETS = {
+        'all': { min: null, max: null },
+        'large': { min: 10000000000, max: null },       // $10B+
+        'mid': { min: 2000000000, max: 10000000000 },   // $2B - $10B
+        'small': { min: 300000000, max: 2000000000 },   // $300M - $2B
+        'micro': { min: null, max: 300000000 },         // <$300M
+    };
+
+    // Toggle filters visibility based on data source
+    document.querySelectorAll('input[name="data_source"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            const fmpFilters = document.getElementById('fmp-filters');
+            const previewBtn = document.getElementById('preview-btn');
+            const previewResults = document.getElementById('preview-results');
+
+            if (this.value === 'sample') {
+                fmpFilters.classList.add('hidden');
+                previewBtn.classList.add('hidden');
+                previewResults.classList.add('hidden');
+            } else {
+                fmpFilters.classList.remove('hidden');
+                previewBtn.classList.remove('hidden');
+            }
+        });
     });
+
+    // Toggle custom market cap inputs
+    document.getElementById('market_cap_preset').addEventListener('change', function() {
+        const customMcap = document.getElementById('custom-mcap');
+        customMcap.classList.toggle('hidden', this.value !== 'custom');
+    });
+
+    // Toggle custom volume input
+    document.getElementById('volume_preset').addEventListener('change', function() {
+        const customVolume = document.getElementById('custom-volume');
+        customVolume.classList.toggle('hidden', this.value !== 'custom');
+    });
+
+    // Get current filter configuration
+    function getFilterConfig() {
+        const dataSource = document.querySelector('input[name="data_source"]:checked').value;
+        const maxStocks = parseInt(document.getElementById('max_stocks').value) || 0;
+
+        let filters = {};
+
+        if (dataSource !== 'sample') {
+            // Market cap
+            const mcapPreset = document.getElementById('market_cap_preset').value;
+            if (mcapPreset === 'custom') {
+                const mcapMin = document.getElementById('mcap_min').value;
+                const mcapMax = document.getElementById('mcap_max').value;
+                if (mcapMin) filters.market_cap_min = parseInt(mcapMin);
+                if (mcapMax) filters.market_cap_max = parseInt(mcapMax);
+            } else if (mcapPreset !== 'all') {
+                const preset = MCAP_PRESETS[mcapPreset];
+                if (preset.min) filters.market_cap_min = preset.min;
+                if (preset.max) filters.market_cap_max = preset.max;
+            }
+
+            // Volume
+            const volPreset = document.getElementById('volume_preset').value;
+            if (volPreset === 'custom') {
+                const volMin = document.getElementById('volume_min').value;
+                if (volMin) filters.volume_min = parseInt(volMin);
+            } else if (volPreset !== '0') {
+                filters.volume_min = parseInt(volPreset);
+            }
+        }
+
+        return {
+            data_source: dataSource,
+            filters: filters,
+            max_stocks: maxStocks,
+            days: parseInt(document.getElementById('days').value),
+            method: document.getElementById('method').value
+        };
+    }
+
+    // Preview universe
+    async function previewUniverse() {
+        const previewBtn = document.getElementById('preview-btn');
+        const previewResults = document.getElementById('preview-results');
+        const previewContent = document.getElementById('preview-content');
+
+        previewBtn.disabled = true;
+        previewBtn.innerHTML = '<svg class="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Fetching...';
+
+        try {
+            const config = getFilterConfig();
+            const res = await fetch('/api/universe/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            });
+
+            const data = await res.json();
+
+            if (data.error) {
+                previewContent.innerHTML = `<div class="text-red-600">${data.error}</div>`;
+            } else {
+                const exchanges = Object.entries(data.by_exchange || {})
+                    .map(([ex, count]) => `${ex}: ${count}`)
+                    .join(' | ');
+
+                const maxStocks = parseInt(document.getElementById('max_stocks').value) || 0;
+                const willProcess = maxStocks > 0 && data.total_count > maxStocks
+                    ? `Will process: ${maxStocks} (limited)`
+                    : `Will process: ${data.total_count}`;
+
+                previewContent.innerHTML = `
+                    <div><strong>Found:</strong> ${data.total_count.toLocaleString()} stocks</div>
+                    <div class="text-xs">${exchanges}</div>
+                    <div class="mt-1">${willProcess}</div>
+                    ${data.sample_tickers ? `<div class="text-xs text-gray-500 mt-1">Sample: ${data.sample_tickers.slice(0,5).join(', ')}...</div>` : ''}
+                `;
+            }
+
+            previewResults.classList.remove('hidden');
+
+        } catch (e) {
+            previewContent.innerHTML = `<div class="text-red-600">Error: ${e.message}</div>`;
+            previewResults.classList.remove('hidden');
+        } finally {
+            previewBtn.disabled = false;
+            previewBtn.innerHTML = '<svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg> Preview Universe';
+        }
+    }
 
     function formatDuration(seconds) {
         if (!seconds) return '--:--';
@@ -159,12 +362,7 @@
     }
 
     async function runPipeline() {
-        const config = {
-            use_sample: document.getElementById('use_sample').value === 'true',
-            sample_size: parseInt(document.getElementById('sample_size').value),
-            days: parseInt(document.getElementById('days').value),
-            method: document.getElementById('method').value
-        };
+        const config = getFilterConfig();
 
         try {
             const res = await fetch('/api/pipeline/run', {
@@ -180,6 +378,8 @@
                 clearLogs();
                 startPolling();
                 updateUIRunning();
+                // Hide preview results when starting
+                document.getElementById('preview-results').classList.add('hidden');
             } else {
                 alert(data.error || 'Failed to start pipeline');
             }

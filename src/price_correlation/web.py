@@ -198,8 +198,20 @@ def run_pipeline():
 
     # Get parameters from request
     data = request.get_json() or {}
-    use_sample = data.get("use_sample", True)  # Default to sample mode for web
-    sample_size = data.get("sample_size", 50)
+
+    # Support both old and new API format
+    if "data_source" in data:
+        # New format
+        data_source = data.get("data_source", "sample")
+        filters = data.get("filters", {})
+        max_stocks = data.get("max_stocks", 0)
+    else:
+        # Old format (backward compatible)
+        use_sample = data.get("use_sample", True)
+        data_source = "sample" if use_sample else "fmp_filtered"
+        filters = {}
+        max_stocks = data.get("sample_size", 50) if use_sample else 0
+
     days = data.get("days", 180)
     method = data.get("method", "hierarchical")
 
@@ -226,8 +238,9 @@ def run_pipeline():
             from .pipeline import PipelineConfig, run_pipeline as run
 
             config = PipelineConfig(
-                use_sample=use_sample,
-                sample_size=sample_size,
+                data_source=data_source,
+                filters=filters,
+                max_stocks=max_stocks,
                 period_months=days // 30,
                 clustering_method=method,
                 visualize=True,
@@ -250,6 +263,45 @@ def run_pipeline():
     thread.start()
 
     return jsonify({"message": "Pipeline started", "status": "running"})
+
+
+@app.route("/api/universe/preview", methods=["POST"])
+def preview_universe():
+    """Preview universe count based on filters without running pipeline."""
+    data = request.get_json() or {}
+    data_source = data.get("data_source", "fmp_filtered")
+    filters = data.get("filters", {})
+
+    # Check for FMP API key
+    api_key = get_fmp_api_key()
+    if not api_key:
+        return jsonify({
+            "error": "FMP API key not configured. Set FMP_API_KEY environment variable."
+        }), 400
+
+    try:
+        from .fmp_client import FMPClient
+
+        client = FMPClient(api_key=api_key)
+        result = client.preview_universe(
+            data_source=data_source,
+            market_cap_min=filters.get("market_cap_min"),
+            market_cap_max=filters.get("market_cap_max"),
+            volume_min=filters.get("volume_min"),
+            volume_max=filters.get("volume_max"),
+        )
+
+        # Don't include full stocks list in response (too large)
+        return jsonify({
+            "total_count": result["total_count"],
+            "by_exchange": result["by_exchange"],
+            "filters_applied": result["filters_applied"],
+            "sample_tickers": result["sample_tickers"],
+        })
+
+    except Exception as e:
+        logger.exception(f"Preview universe error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/pipeline/kill", methods=["POST"])

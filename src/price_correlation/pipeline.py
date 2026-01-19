@@ -27,9 +27,14 @@ class PipelineConfig:
     output_dir: str = "./output"
     correlation_threshold: float = 0.7
     visualize: bool = True
+    # Legacy options (backward compatible)
     use_sample: bool = False
     sample_size: int = 50
     tickers: list[str] = field(default_factory=list)
+    # New data source options
+    data_source: str = "sample"  # "sample", "fmp_all", "fmp_filtered"
+    filters: dict = field(default_factory=dict)
+    max_stocks: int = 0  # 0 = no limit
 
 
 def run_pipeline(config: PipelineConfig | dict | None = None) -> dict:
@@ -51,14 +56,89 @@ def run_pipeline(config: PipelineConfig | dict | None = None) -> dict:
     output_dir = Path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Step 1: Getting stock universe...")
-    if config.tickers:
+    print("Step 1: Getting stock universe...", flush=True)
+
+    # Determine data source (support both old and new config formats)
+    data_source = config.data_source
+    if data_source == "sample" and config.use_sample:
+        # Legacy format
+        data_source = "sample"
+    elif data_source == "sample" and config.tickers:
+        # Explicit tickers provided
+        data_source = "explicit"
+
+    if data_source == "explicit" or config.tickers:
         tickers = config.tickers
-    elif config.use_sample:
-        tickers = get_sample_tickers(config.sample_size)
+        print(f"  Using provided tickers: {len(tickers)}", flush=True)
+
+    elif data_source == "sample":
+        # Use hardcoded sample tickers
+        sample_size = config.max_stocks if config.max_stocks > 0 else config.sample_size
+        if sample_size == 0:
+            sample_size = 50
+        tickers = get_sample_tickers(sample_size)
+        print(f"  Using sample tickers: {len(tickers)}", flush=True)
+
+    elif data_source in ("fmp_all", "fmp_filtered"):
+        # Use FMP API
+        import os
+        from .fmp_client import FMPClient
+
+        api_key = os.environ.get("FMP_API_KEY")
+        if not api_key:
+            raise ValueError("FMP_API_KEY environment variable required for FMP data source")
+
+        client = FMPClient(api_key=api_key)
+        filters = config.filters or {}
+
+        if data_source == "fmp_all":
+            print("  Fetching full universe from FMP (no filters)...", flush=True)
+            stocks = client.get_full_universe_iterative(
+                progress_callback=lambda msg: print(f"    {msg}", flush=True),
+                split_threshold=475,
+            )
+        else:
+            # fmp_filtered
+            mcap_min = filters.get("market_cap_min")
+            mcap_max = filters.get("market_cap_max")
+            vol_min = filters.get("volume_min")
+            vol_max = filters.get("volume_max")
+
+            filter_desc = []
+            if mcap_min or mcap_max:
+                if mcap_min and mcap_max:
+                    filter_desc.append(f"Market Cap: ${mcap_min/1e9:.0f}B-${mcap_max/1e9:.0f}B")
+                elif mcap_min:
+                    filter_desc.append(f"Market Cap: >=${mcap_min/1e9:.0f}B")
+                else:
+                    filter_desc.append(f"Market Cap: <=${mcap_max/1e9:.0f}B")
+            if vol_min:
+                filter_desc.append(f"Volume: >={vol_min/1000:.0f}K")
+
+            print(f"  Fetching from FMP with filters: {', '.join(filter_desc) or 'none'}", flush=True)
+
+            stocks = client.get_stock_screener(
+                market_cap_min=mcap_min,
+                market_cap_max=mcap_max,
+                volume_min=vol_min,
+                volume_max=vol_max,
+                progress_callback=lambda msg: print(f"    {msg}", flush=True),
+            )
+
+        tickers = [s["symbol"] for s in stocks]
+        print(f"  Found {len(tickers)} stocks from FMP", flush=True)
+
+        # Apply max_stocks limit
+        if config.max_stocks > 0 and len(tickers) > config.max_stocks:
+            tickers = tickers[:config.max_stocks]
+            print(f"  Limited to {len(tickers)} stocks (max_stocks={config.max_stocks})", flush=True)
+
     else:
+        # Fallback to full universe from Wikipedia
         tickers = get_full_universe()
-    print(f"  Universe: {len(tickers)} tickers")
+        print(f"  Using full universe: {len(tickers)}", flush=True)
+
+    print(f"  Universe: {len(tickers)} tickers", flush=True)
 
     print("Step 2: Fetching price data...")
     prices = fetch_price_history(
