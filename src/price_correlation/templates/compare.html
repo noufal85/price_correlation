@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ ticker_a }} vs {{ ticker_b }} - Stock Comparison</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .loading { opacity: 0.5; }
+        .metric-card { transition: all 0.2s; }
+        .metric-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .winner { background-color: #ecfdf5; border-color: #10b981; }
+        .loser { background-color: #fef2f2; border-color: #ef4444; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-6 max-w-7xl">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">
+                    <span class="text-blue-600">{{ ticker_a }}</span>
+                    <span class="text-gray-400 mx-2">vs</span>
+                    <span class="text-green-600">{{ ticker_b }}</span>
+                </h1>
+                <p class="text-gray-500 text-sm mt-1">Side-by-side comparison</p>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div id="correlation-badge" class="px-4 py-2 bg-indigo-100 text-indigo-800 rounded-lg font-semibold">
+                    Correlation: <span id="corr-value">{{ correlation }}</span>
+                </div>
+                <button onclick="window.close()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                    Close
+                </button>
+            </div>
+        </div>
+
+        <!-- Company Headers -->
+        <div class="grid grid-cols-2 gap-6 mb-6">
+            <div id="header-a" class="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-xl font-bold text-blue-600">{{ ticker_a }}</h2>
+                        <p id="name-a" class="text-gray-600 text-sm">Loading...</p>
+                    </div>
+                    <div class="text-right">
+                        <div id="price-a" class="text-2xl font-bold text-gray-900">-</div>
+                        <div id="change-a" class="text-sm">-</div>
+                    </div>
+                </div>
+            </div>
+            <div id="header-b" class="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-xl font-bold text-green-600">{{ ticker_b }}</h2>
+                        <p id="name-b" class="text-gray-600 text-sm">Loading...</p>
+                    </div>
+                    <div class="text-right">
+                        <div id="price-b" class="text-2xl font-bold text-gray-900">-</div>
+                        <div id="change-b" class="text-sm">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Price Chart -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-900">Price Performance (Indexed)</h3>
+                <div class="flex space-x-2">
+                    <button onclick="loadPrices(3)" class="px-3 py-1 text-sm rounded border hover:bg-gray-100" data-period="3">3M</button>
+                    <button onclick="loadPrices(6)" class="px-3 py-1 text-sm rounded border hover:bg-gray-100" data-period="6">6M</button>
+                    <button onclick="loadPrices(12)" class="px-3 py-1 text-sm rounded border bg-blue-100 border-blue-500" data-period="12">1Y</button>
+                    <button onclick="loadPrices(18)" class="px-3 py-1 text-sm rounded border hover:bg-gray-100" data-period="18">18M</button>
+                </div>
+            </div>
+            <div class="h-80">
+                <canvas id="price-chart"></canvas>
+            </div>
+        </div>
+
+        <!-- Key Metrics Comparison -->
+        <div class="bg-white rounded-lg shadow p-6 mb-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Key Metrics</h3>
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="border-b">
+                            <th class="py-3 text-left text-gray-500 font-medium">Metric</th>
+                            <th class="py-3 text-right text-blue-600 font-medium">{{ ticker_a }}</th>
+                            <th class="py-3 text-right text-green-600 font-medium">{{ ticker_b }}</th>
+                            <th class="py-3 text-center text-gray-500 font-medium">Better</th>
+                        </tr>
+                    </thead>
+                    <tbody id="metrics-table">
+                        <tr><td colspan="4" class="py-8 text-center text-gray-400">Loading metrics...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Company Details -->
+        <div class="grid grid-cols-2 gap-6 mb-6">
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold text-blue-600 mb-4">{{ ticker_a }} Details</h3>
+                <div id="details-a" class="space-y-3 text-sm">
+                    <p class="text-gray-400">Loading...</p>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold text-green-600 mb-4">{{ ticker_b }} Details</h3>
+                <div id="details-b" class="space-y-3 text-sm">
+                    <p class="text-gray-400">Loading...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Business Description -->
+        <div class="grid grid-cols-2 gap-6">
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold text-blue-600 mb-3">About {{ ticker_a }}</h3>
+                <p id="desc-a" class="text-gray-600 text-sm leading-relaxed">Loading...</p>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6">
+                <h3 class="text-lg font-semibold text-green-600 mb-3">About {{ ticker_b }}</h3>
+                <p id="desc-b" class="text-gray-600 text-sm leading-relaxed">Loading...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const tickerA = "{{ ticker_a }}";
+        const tickerB = "{{ ticker_b }}";
+        let priceChart = null;
+
+        // Format numbers
+        function formatNumber(num, decimals = 2) {
+            if (num === null || num === undefined || isNaN(num)) return '-';
+            if (Math.abs(num) >= 1e12) return (num / 1e12).toFixed(decimals) + 'T';
+            if (Math.abs(num) >= 1e9) return (num / 1e9).toFixed(decimals) + 'B';
+            if (Math.abs(num) >= 1e6) return (num / 1e6).toFixed(decimals) + 'M';
+            if (Math.abs(num) >= 1e3) return (num / 1e3).toFixed(decimals) + 'K';
+            return num.toFixed(decimals);
+        }
+
+        function formatPercent(num) {
+            if (num === null || num === undefined || isNaN(num)) return '-';
+            return (num * 100).toFixed(2) + '%';
+        }
+
+        function formatCurrency(num) {
+            if (num === null || num === undefined || isNaN(num)) return '-';
+            return '$' + formatNumber(num);
+        }
+
+        // Determine winner (higher is better for most metrics)
+        function getWinner(valA, valB, higherIsBetter = true) {
+            if (valA === null || valB === null || isNaN(valA) || isNaN(valB)) return null;
+            if (higherIsBetter) return valA > valB ? 'A' : (valB > valA ? 'B' : null);
+            return valA < valB ? 'A' : (valB < valA ? 'B' : null);
+        }
+
+        // Load company fundamentals
+        async function loadFundamentals() {
+            try {
+                const [resA, resB] = await Promise.all([
+                    fetch(`/api/stock/${tickerA}/fundamentals`),
+                    fetch(`/api/stock/${tickerB}/fundamentals`)
+                ]);
+
+                const dataA = await resA.json();
+                const dataB = await resB.json();
+
+                // Update headers
+                document.getElementById('name-a').textContent = dataA.name || tickerA;
+                document.getElementById('name-b').textContent = dataB.name || tickerB;
+
+                document.getElementById('price-a').textContent = formatCurrency(dataA.price);
+                document.getElementById('price-b').textContent = formatCurrency(dataB.price);
+
+                const changeA = dataA.change_percent;
+                const changeB = dataB.change_percent;
+                document.getElementById('change-a').innerHTML = changeA !== null ?
+                    `<span class="${changeA >= 0 ? 'text-green-600' : 'text-red-600'}">${changeA >= 0 ? '+' : ''}${changeA?.toFixed(2)}%</span>` : '-';
+                document.getElementById('change-b').innerHTML = changeB !== null ?
+                    `<span class="${changeB >= 0 ? 'text-green-600' : 'text-red-600'}">${changeB >= 0 ? '+' : ''}${changeB?.toFixed(2)}%</span>` : '-';
+
+                // Build metrics table
+                const metrics = [
+                    { name: 'Market Cap', key: 'market_cap', format: formatCurrency, higher: true },
+                    { name: 'P/E Ratio', key: 'pe_ratio', format: v => v?.toFixed(2) || '-', higher: false },
+                    { name: 'Forward P/E', key: 'forward_pe', format: v => v?.toFixed(2) || '-', higher: false },
+                    { name: 'PEG Ratio', key: 'peg_ratio', format: v => v?.toFixed(2) || '-', higher: false },
+                    { name: 'EPS (TTM)', key: 'eps', format: v => '$' + (v?.toFixed(2) || '-'), higher: true },
+                    { name: 'Revenue (TTM)', key: 'revenue', format: formatCurrency, higher: true },
+                    { name: 'Revenue Growth', key: 'revenue_growth', format: formatPercent, higher: true },
+                    { name: 'Profit Margin', key: 'profit_margin', format: formatPercent, higher: true },
+                    { name: 'Operating Margin', key: 'operating_margin', format: formatPercent, higher: true },
+                    { name: 'ROE', key: 'roe', format: formatPercent, higher: true },
+                    { name: 'ROA', key: 'roa', format: formatPercent, higher: true },
+                    { name: 'Debt/Equity', key: 'debt_to_equity', format: v => v?.toFixed(2) || '-', higher: false },
+                    { name: 'Current Ratio', key: 'current_ratio', format: v => v?.toFixed(2) || '-', higher: true },
+                    { name: 'Dividend Yield', key: 'dividend_yield', format: formatPercent, higher: true },
+                    { name: 'Beta', key: 'beta', format: v => v?.toFixed(2) || '-', higher: null },
+                    { name: '52W High', key: 'fifty_two_week_high', format: formatCurrency, higher: null },
+                    { name: '52W Low', key: 'fifty_two_week_low', format: formatCurrency, higher: null },
+                    { name: 'Avg Volume', key: 'avg_volume', format: formatNumber, higher: true },
+                ];
+
+                let tableHtml = '';
+                for (const m of metrics) {
+                    const valA = dataA[m.key];
+                    const valB = dataB[m.key];
+                    const winner = m.higher !== null ? getWinner(valA, valB, m.higher) : null;
+
+                    tableHtml += `
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 text-gray-700">${m.name}</td>
+                            <td class="py-3 text-right font-medium ${winner === 'A' ? 'text-blue-600' : ''}">${m.format(valA)}</td>
+                            <td class="py-3 text-right font-medium ${winner === 'B' ? 'text-green-600' : ''}">${m.format(valB)}</td>
+                            <td class="py-3 text-center">
+                                ${winner === 'A' ? '<span class="text-blue-600">&#9664;</span>' : ''}
+                                ${winner === 'B' ? '<span class="text-green-600">&#9654;</span>' : ''}
+                                ${winner === null ? '-' : ''}
+                            </td>
+                        </tr>
+                    `;
+                }
+                document.getElementById('metrics-table').innerHTML = tableHtml;
+
+                // Company details
+                const detailsA = `
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="text-gray-500">Sector:</div><div class="font-medium">${dataA.sector || '-'}</div>
+                        <div class="text-gray-500">Industry:</div><div class="font-medium">${dataA.industry || '-'}</div>
+                        <div class="text-gray-500">Employees:</div><div class="font-medium">${dataA.employees ? formatNumber(dataA.employees, 0) : '-'}</div>
+                        <div class="text-gray-500">Country:</div><div class="font-medium">${dataA.country || '-'}</div>
+                        <div class="text-gray-500">Exchange:</div><div class="font-medium">${dataA.exchange || '-'}</div>
+                        <div class="text-gray-500">Website:</div><div class="font-medium">${dataA.website ? `<a href="${dataA.website}" target="_blank" class="text-blue-600 hover:underline">Visit</a>` : '-'}</div>
+                    </div>
+                `;
+                const detailsB = `
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="text-gray-500">Sector:</div><div class="font-medium">${dataB.sector || '-'}</div>
+                        <div class="text-gray-500">Industry:</div><div class="font-medium">${dataB.industry || '-'}</div>
+                        <div class="text-gray-500">Employees:</div><div class="font-medium">${dataB.employees ? formatNumber(dataB.employees, 0) : '-'}</div>
+                        <div class="text-gray-500">Country:</div><div class="font-medium">${dataB.country || '-'}</div>
+                        <div class="text-gray-500">Exchange:</div><div class="font-medium">${dataB.exchange || '-'}</div>
+                        <div class="text-gray-500">Website:</div><div class="font-medium">${dataB.website ? `<a href="${dataB.website}" target="_blank" class="text-green-600 hover:underline">Visit</a>` : '-'}</div>
+                    </div>
+                `;
+                document.getElementById('details-a').innerHTML = detailsA;
+                document.getElementById('details-b').innerHTML = detailsB;
+
+                // Descriptions
+                document.getElementById('desc-a').textContent = dataA.description || 'No description available.';
+                document.getElementById('desc-b').textContent = dataB.description || 'No description available.';
+
+            } catch (e) {
+                console.error('Error loading fundamentals:', e);
+            }
+        }
+
+        // Load price chart
+        async function loadPrices(months = 12) {
+            // Update button states
+            document.querySelectorAll('[data-period]').forEach(btn => {
+                btn.classList.remove('bg-blue-100', 'border-blue-500');
+                btn.classList.add('hover:bg-gray-100');
+                if (parseInt(btn.dataset.period) === months) {
+                    btn.classList.add('bg-blue-100', 'border-blue-500');
+                    btn.classList.remove('hover:bg-gray-100');
+                }
+            });
+
+            try {
+                const [resA, resB] = await Promise.all([
+                    fetch(`/api/stock/${tickerA}/prices?months=${months}`),
+                    fetch(`/api/stock/${tickerB}/prices?months=${months}`)
+                ]);
+
+                const dataA = await resA.json();
+                const dataB = await resB.json();
+
+                if (!dataA.prices || !dataB.prices) {
+                    console.error('No price data');
+                    return;
+                }
+
+                // Normalize to index 100
+                const startA = dataA.prices[0].price;
+                const startB = dataB.prices[0].price;
+
+                const normalizedA = dataA.prices.map(p => ({ date: p.date, value: (p.price / startA) * 100 }));
+                const normalizedB = dataB.prices.map(p => ({ date: p.date, value: (p.price / startB) * 100 }));
+
+                const ctx = document.getElementById('price-chart').getContext('2d');
+                if (priceChart) priceChart.destroy();
+
+                priceChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: normalizedA.map(p => p.date),
+                        datasets: [
+                            {
+                                label: tickerA,
+                                data: normalizedA.map(p => p.value),
+                                borderColor: 'rgba(59, 130, 246, 1)',
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                fill: true
+                            },
+                            {
+                                label: tickerB,
+                                data: normalizedB.map(p => p.value),
+                                borderColor: 'rgba(34, 197, 94, 1)',
+                                backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                fill: true
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { intersect: false, mode: 'index' },
+                        plugins: {
+                            legend: { display: true, position: 'top' },
+                            tooltip: {
+                                callbacks: {
+                                    label: ctx => `${ctx.dataset.label}: ${(ctx.raw - 100).toFixed(1)}%`
+                                }
+                            }
+                        },
+                        scales: {
+                            x: { display: true, ticks: { maxTicksLimit: 12 } },
+                            y: { display: true, title: { display: true, text: 'Indexed (Start = 100)' } }
+                        }
+                    }
+                });
+
+            } catch (e) {
+                console.error('Error loading prices:', e);
+            }
+        }
+
+        // Initialize
+        loadFundamentals();
+        loadPrices(12);
+    </script>
+</body>
+</html>

@@ -105,7 +105,11 @@ def find_optimal_k(
     min_k: int = 2,
 ) -> tuple[int, float]:
     """
-    Find optimal cluster count using silhouette score.
+    Find optimal cluster count using silhouette score with elbow detection.
+
+    Uses a combination of silhouette score and elbow detection to avoid
+    selecting trivially small cluster counts (like k=2) when the silhouette
+    score plateau is nearly flat.
 
     Args:
         Z: Linkage matrix from hierarchical clustering
@@ -123,17 +127,28 @@ def find_optimal_k(
         # Use sqrt(n) * 2 as a reasonable upper bound, capped at 100
         max_k = min(100, max(30, int(np.sqrt(n_samples) * 2)))
 
-    best_k = min_k
-    best_score = -1.0
+    # For large datasets, set a reasonable minimum to avoid trivial clustering
+    if n_samples > 100:
+        min_k = max(min_k, 5)  # At least 5 clusters for 100+ stocks
+    if n_samples > 500:
+        min_k = max(min_k, 10)  # At least 10 clusters for 500+ stocks
+    if n_samples > 1000:
+        min_k = max(min_k, 15)  # At least 15 clusters for 1000+ stocks
+
+    print(f"  Finding optimal k: n_samples={n_samples}, min_k={min_k}, max_k={max_k}", flush=True)
 
     # For large datasets, evaluate fewer k values to speed up
     if n_samples > 500:
         # Sample k values instead of trying every one
-        k_values = list(range(min_k, min(20, max_k + 1)))  # Always check 2-20
-        k_values.extend(range(20, max_k + 1, 5))  # Then sample every 5
+        k_values = list(range(min_k, min(30, max_k + 1)))  # Check min_k to 30
+        k_values.extend(range(30, max_k + 1, 5))  # Then sample every 5
         k_values = sorted(set(k_values))
     else:
         k_values = list(range(min_k, max_k + 1))
+
+    scores = {}
+    best_k = min_k
+    best_score = -1.0
 
     for k in k_values:
         labels = fcluster(Z, t=k, criterion="maxclust")
@@ -144,12 +159,31 @@ def find_optimal_k(
 
         try:
             score = silhouette_score(distance_matrix, labels, metric="precomputed")
+            scores[k] = score
+
             if score > best_score:
                 best_score = score
                 best_k = k
         except ValueError:
             continue
 
+    # Log top scores for debugging
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:10]
+    print(f"  Top silhouette scores: {[(k, f'{s:.4f}') for k, s in sorted_scores]}", flush=True)
+
+    # If best_k is suspiciously low and scores are similar, use elbow method
+    if best_k < 10 and len(scores) > 10:
+        # Check if there's a better k with similar score (within 10%)
+        threshold = best_score * 0.90
+        candidates = [(k, s) for k, s in scores.items() if s >= threshold and k >= 10]
+        if candidates:
+            # Choose the one with highest score among larger k values
+            alt_k, alt_score = max(candidates, key=lambda x: x[1])
+            print(f"  Adjusting from k={best_k} to k={alt_k} (scores similar: {best_score:.4f} vs {alt_score:.4f})", flush=True)
+            best_k = alt_k
+            best_score = alt_score
+
+    print(f"  Selected k={best_k} with silhouette={best_score:.4f}", flush=True)
     return best_k, best_score
 
 

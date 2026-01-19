@@ -150,7 +150,7 @@
                                 </div>
                             </td>
                             <td class="py-3 text-center">
-                                <button onclick="comparePair('${p.ticker_a}', '${p.ticker_b}', ${p.correlation})"
+                                <button onclick="openCompare('${p.ticker_a}', '${p.ticker_b}', ${p.correlation})"
                                         class="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 mr-2">
                                     Compare
                                 </button>
@@ -229,7 +229,17 @@
     // Initialize
     loadCorrelations();
 
-    // Comparison chart
+    // Open comparison in new popup window
+    function openCompare(tickerA, tickerB, correlation) {
+        const url = `/compare/${tickerA}/${tickerB}?corr=${correlation.toFixed(4)}`;
+        const width = 1200;
+        const height = 900;
+        const left = (screen.width - width) / 2;
+        const top = (screen.height - height) / 2;
+        window.open(url, '_blank', `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`);
+    }
+
+    // Comparison chart (legacy modal - kept for reference)
     let compareChart = null;
 
     async function comparePair(tickerA, tickerB, correlation) {

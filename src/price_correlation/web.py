@@ -518,6 +518,96 @@ def get_stock_prices(ticker):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/stock/<ticker>/fundamentals")
+def get_stock_fundamentals(ticker):
+    """Get company fundamentals and financial metrics."""
+    import yfinance as yf
+
+    try:
+        stock = yf.Ticker(ticker.upper())
+        info = stock.info
+
+        # Extract key metrics
+        fundamentals = {
+            "ticker": ticker.upper(),
+            "name": info.get("longName") or info.get("shortName"),
+            "price": info.get("currentPrice") or info.get("regularMarketPrice"),
+            "change_percent": info.get("regularMarketChangePercent"),
+
+            # Valuation
+            "market_cap": info.get("marketCap"),
+            "pe_ratio": info.get("trailingPE"),
+            "forward_pe": info.get("forwardPE"),
+            "peg_ratio": info.get("pegRatio"),
+            "price_to_book": info.get("priceToBook"),
+            "price_to_sales": info.get("priceToSalesTrailing12Months"),
+
+            # Earnings
+            "eps": info.get("trailingEps"),
+            "forward_eps": info.get("forwardEps"),
+
+            # Revenue & Profitability
+            "revenue": info.get("totalRevenue"),
+            "revenue_growth": info.get("revenueGrowth"),
+            "gross_margin": info.get("grossMargins"),
+            "profit_margin": info.get("profitMargins"),
+            "operating_margin": info.get("operatingMargins"),
+            "ebitda": info.get("ebitda"),
+
+            # Returns
+            "roe": info.get("returnOnEquity"),
+            "roa": info.get("returnOnAssets"),
+
+            # Balance Sheet
+            "total_debt": info.get("totalDebt"),
+            "total_cash": info.get("totalCash"),
+            "debt_to_equity": info.get("debtToEquity"),
+            "current_ratio": info.get("currentRatio"),
+            "quick_ratio": info.get("quickRatio"),
+
+            # Dividends
+            "dividend_yield": info.get("dividendYield"),
+            "dividend_rate": info.get("dividendRate"),
+            "payout_ratio": info.get("payoutRatio"),
+
+            # Trading
+            "beta": info.get("beta"),
+            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+            "fifty_day_avg": info.get("fiftyDayAverage"),
+            "two_hundred_day_avg": info.get("twoHundredDayAverage"),
+            "avg_volume": info.get("averageVolume"),
+
+            # Company Info
+            "sector": info.get("sector"),
+            "industry": info.get("industry"),
+            "employees": info.get("fullTimeEmployees"),
+            "country": info.get("country"),
+            "city": info.get("city"),
+            "exchange": info.get("exchange"),
+            "website": info.get("website"),
+            "description": info.get("longBusinessSummary"),
+        }
+
+        return jsonify(fundamentals)
+
+    except Exception as e:
+        logger.error(f"Error fetching fundamentals for {ticker}: {e}")
+        return jsonify({"error": str(e), "ticker": ticker}), 500
+
+
+@app.route("/compare/<ticker_a>/<ticker_b>")
+def compare_stocks(ticker_a, ticker_b):
+    """Render stock comparison page."""
+    correlation = request.args.get("corr", "N/A")
+    return render_template(
+        "compare.html",
+        ticker_a=ticker_a.upper(),
+        ticker_b=ticker_b.upper(),
+        correlation=correlation,
+    )
+
+
 @app.route("/api/stock/<ticker>/cluster-history")
 def get_stock_cluster_history(ticker):
     """Get cluster history for a stock."""
