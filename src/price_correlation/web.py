@@ -147,6 +147,12 @@ def charts_page():
     return render_template("charts.html")
 
 
+@app.route("/steps")
+def steps_page():
+    """Step-by-step pipeline page."""
+    return render_template("steps.html")
+
+
 @app.route("/pipeline")
 def pipeline_page():
     """Pipeline control page."""
@@ -1054,6 +1060,292 @@ def db_status():
     try:
         from .db import get_db_stats
         return jsonify(get_db_stats())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# =============================================================================
+# API Routes - Step-by-Step Pipeline
+# =============================================================================
+
+# Track step execution state (per session)
+step_execution_state = {
+    "running": False,
+    "session_id": None,
+    "current_step": None,
+    "logs": [],
+    "error": None,
+}
+
+
+@app.route("/api/steps/sessions")
+def list_pipeline_sessions():
+    """List all pipeline sessions."""
+    try:
+        from .pipeline_state import list_sessions
+        sessions = list_sessions()
+        return jsonify({"sessions": sessions})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/steps/session/<session_id>")
+def get_session_status(session_id):
+    """Get status of a specific session."""
+    try:
+        from .pipeline_state import get_state_manager
+        manager = get_state_manager(session_id)
+        status = manager.get_status()
+        status["execution_running"] = (
+            step_execution_state["running"] and
+            step_execution_state["session_id"] == session_id
+        )
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/steps/session/new", methods=["POST"])
+def create_new_session():
+    """Create a new pipeline session."""
+    try:
+        from .pipeline_state import get_state_manager
+        data = request.get_json() or {}
+
+        manager = get_state_manager()  # Creates new session
+        manager.set_config(data.get("config", {}))
+
+        return jsonify({
+            "session_id": manager.session_id,
+            "status": manager.get_status(),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/steps/run/<step>", methods=["POST"])
+def run_pipeline_step(step):
+    """Run a single pipeline step."""
+    from .pipeline_state import PIPELINE_STEPS
+
+    if step not in PIPELINE_STEPS:
+        return jsonify({"error": f"Invalid step: {step}"}), 400
+
+    if step_execution_state["running"]:
+        return jsonify({
+            "error": "A step is already running",
+            "current_step": step_execution_state["current_step"],
+        }), 409
+
+    data = request.get_json() or {}
+    session_id = data.get("session_id")
+    config = data.get("config", {})
+
+    # Reset state
+    step_execution_state["running"] = True
+    step_execution_state["session_id"] = session_id
+    step_execution_state["current_step"] = step
+    step_execution_state["logs"] = []
+    step_execution_state["error"] = None
+
+    def run_step_background():
+        try:
+            from .pipeline_steps import run_single_step, StepConfig
+
+            def progress_callback(msg):
+                step_execution_state["logs"].append({
+                    "time": datetime.now().isoformat(),
+                    "message": msg,
+                })
+
+            step_config = StepConfig.from_dict(config) if config else StepConfig()
+            result = run_single_step(step, step_config, session_id, progress_callback)
+
+            step_execution_state["logs"].append({
+                "time": datetime.now().isoformat(),
+                "message": f"Step {step} completed successfully",
+            })
+
+        except Exception as e:
+            logger.exception(f"Step {step} error: {e}")
+            step_execution_state["error"] = str(e)
+            step_execution_state["logs"].append({
+                "time": datetime.now().isoformat(),
+                "message": f"ERROR: {e}",
+            })
+        finally:
+            step_execution_state["running"] = False
+            step_execution_state["current_step"] = None
+
+    thread = threading.Thread(target=run_step_background)
+    thread.start()
+
+    return jsonify({
+        "message": f"Step {step} started",
+        "session_id": session_id,
+        "step": step,
+    })
+
+
+@app.route("/api/steps/run-from/<step>", methods=["POST"])
+def run_pipeline_from_step(step):
+    """Run pipeline from a specific step onwards."""
+    from .pipeline_state import PIPELINE_STEPS
+
+    if step not in PIPELINE_STEPS:
+        return jsonify({"error": f"Invalid step: {step}"}), 400
+
+    if step_execution_state["running"]:
+        return jsonify({
+            "error": "Pipeline is already running",
+            "current_step": step_execution_state["current_step"],
+        }), 409
+
+    data = request.get_json() or {}
+    session_id = data.get("session_id")
+    config = data.get("config", {})
+
+    step_execution_state["running"] = True
+    step_execution_state["session_id"] = session_id
+    step_execution_state["current_step"] = step
+    step_execution_state["logs"] = []
+    step_execution_state["error"] = None
+
+    def run_from_background():
+        try:
+            from .pipeline_steps import run_from_step, StepConfig
+
+            def progress_callback(msg):
+                step_execution_state["logs"].append({
+                    "time": datetime.now().isoformat(),
+                    "message": msg,
+                })
+                # Update current step based on log message
+                for s in PIPELINE_STEPS:
+                    if f"Step" in msg and s in msg.lower():
+                        step_execution_state["current_step"] = s
+
+            step_config = StepConfig.from_dict(config) if config else StepConfig()
+            result = run_from_step(step, step_config, session_id, progress_callback)
+
+            step_execution_state["logs"].append({
+                "time": datetime.now().isoformat(),
+                "message": "Pipeline completed successfully",
+            })
+
+        except Exception as e:
+            logger.exception(f"Pipeline error: {e}")
+            step_execution_state["error"] = str(e)
+            step_execution_state["logs"].append({
+                "time": datetime.now().isoformat(),
+                "message": f"ERROR: {e}",
+            })
+        finally:
+            step_execution_state["running"] = False
+            step_execution_state["current_step"] = None
+
+    thread = threading.Thread(target=run_from_background)
+    thread.start()
+
+    return jsonify({
+        "message": f"Pipeline started from step {step}",
+        "session_id": session_id,
+        "step": step,
+    })
+
+
+@app.route("/api/steps/status")
+def get_step_execution_status():
+    """Get current step execution status."""
+    return jsonify({
+        "running": step_execution_state["running"],
+        "session_id": step_execution_state["session_id"],
+        "current_step": step_execution_state["current_step"],
+        "logs": step_execution_state["logs"][-50:],  # Last 50 logs
+        "error": step_execution_state["error"],
+    })
+
+
+@app.route("/api/steps/clear/<step>", methods=["POST"])
+def clear_step_data(step):
+    """Clear data for a step and all subsequent steps."""
+    data = request.get_json() or {}
+    session_id = data.get("session_id")
+
+    if not session_id:
+        return jsonify({"error": "session_id required"}), 400
+
+    try:
+        from .pipeline_state import get_state_manager
+        manager = get_state_manager(session_id)
+        manager.clear_step(step)
+        return jsonify({
+            "message": f"Cleared step {step} and subsequent steps",
+            "status": manager.get_status(),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/steps/data/<step>")
+def get_step_data_preview(step):
+    """Get preview of step data."""
+    session_id = request.args.get("session_id")
+
+    if not session_id:
+        return jsonify({"error": "session_id required"}), 400
+
+    try:
+        from .pipeline_state import get_state_manager
+        manager = get_state_manager(session_id)
+
+        if not manager.has_step_data(step):
+            return jsonify({"error": f"No data for step {step}"}), 404
+
+        data = manager.load_step_data(step)
+
+        # Create preview based on step type
+        preview = {"step": step, "has_data": True}
+
+        if step == "universe":
+            preview["count"] = len(data)
+            preview["sample"] = data[:20]
+
+        elif step == "prices":
+            preview["tickers"] = data.shape[1]
+            preview["days"] = data.shape[0]
+            preview["columns"] = list(data.columns[:20])
+            preview["date_range"] = {
+                "start": str(data.index[0]),
+                "end": str(data.index[-1]),
+            }
+
+        elif step == "preprocess":
+            preview["tickers"] = data.shape[1]
+            preview["days"] = data.shape[0]
+            preview["columns"] = list(data.columns[:20])
+
+        elif step == "correlation":
+            preview["matrix_shape"] = list(data["corr_matrix"].shape)
+            preview["tickers_count"] = len(data["tickers"])
+            preview["sample_tickers"] = data["tickers"][:20]
+
+        elif step == "clustering":
+            preview["n_clusters"] = data["stats"]["n_clusters"]
+            preview["n_noise"] = data["stats"]["n_noise"]
+            preview["silhouette"] = data["silhouette"]
+            preview["method"] = data["method_info"]
+            preview["sample_assignments"] = [
+                {"ticker": t, "cluster": int(l)}
+                for t, l in zip(data["tickers"][:20], data["labels"][:20])
+            ]
+
+        elif step == "export":
+            preview["files"] = list(data.get("output_files", {}).keys())
+            preview["execution_time"] = data.get("execution_time")
+
+        return jsonify(preview)
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

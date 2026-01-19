@@ -1,0 +1,434 @@
+{% extends "base.html" %}
+
+{% block title %}Pipeline Steps - Stock Clustering{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Step-by-Step Pipeline</h1>
+            <p class="text-gray-500 text-sm mt-1">Run individual steps, resume from any point, view intermediate results</p>
+        </div>
+        <div class="flex space-x-3">
+            <button id="new-session-btn" class="btn-secondary">New Session</button>
+            <button id="run-all-btn" class="btn-primary">Run All Steps</button>
+        </div>
+    </div>
+
+    <!-- Session Info -->
+    <div class="bg-white rounded-lg shadow-md p-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <span class="text-sm text-gray-500">Session:</span>
+                <span id="session-id" class="ml-2 font-mono text-sm">No session</span>
+            </div>
+            <div class="flex items-center space-x-4">
+                <span id="session-status" class="text-sm text-gray-500">-</span>
+                <select id="session-select" class="border rounded px-2 py-1 text-sm">
+                    <option value="">Load Session...</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Configuration Panel -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Configuration</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Data Source</label>
+                <select id="config-source" class="w-full border rounded px-3 py-2">
+                    <option value="sample">Sample (50 stocks)</option>
+                    <option value="fmp_filtered">FMP Filtered</option>
+                    <option value="fmp_all">FMP All Stocks</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Max Stocks</label>
+                <input type="number" id="config-max-stocks" value="500" class="w-full border rounded px-3 py-2">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Period (Months)</label>
+                <input type="number" id="config-period" value="18" class="w-full border rounded px-3 py-2">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Clustering Method</label>
+                <select id="config-method" class="w-full border rounded px-3 py-2">
+                    <option value="hierarchical">Hierarchical</option>
+                    <option value="dbscan">DBSCAN</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Min History %</label>
+                <input type="number" id="config-min-history" value="90" step="5" min="50" max="100" class="w-full border rounded px-3 py-2">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Correlation Threshold</label>
+                <input type="number" id="config-corr-threshold" value="0.7" step="0.05" min="0.5" max="0.95" class="w-full border rounded px-3 py-2">
+            </div>
+        </div>
+    </div>
+
+    <!-- Pipeline Steps -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Pipeline Steps</h2>
+        <div class="space-y-3" id="steps-container">
+            <!-- Steps will be rendered here -->
+        </div>
+    </div>
+
+    <!-- Log Output -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-lg font-semibold text-gray-900">Execution Log</h2>
+            <button id="clear-logs-btn" class="text-sm text-gray-500 hover:text-gray-700">Clear</button>
+        </div>
+        <div id="log-output" class="bg-gray-900 text-gray-100 font-mono text-sm p-4 rounded h-64 overflow-y-auto">
+            <div class="text-gray-500">Logs will appear here...</div>
+        </div>
+    </div>
+
+    <!-- Data Preview Modal -->
+    <div id="preview-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl w-11/12 max-w-3xl max-h-[80vh] overflow-hidden">
+            <div class="flex justify-between items-center border-b px-6 py-4">
+                <h3 id="preview-title" class="text-lg font-semibold text-gray-900">Step Data Preview</h3>
+                <button id="close-preview" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            </div>
+            <div id="preview-content" class="p-6 overflow-y-auto max-h-[60vh]">
+                Loading...
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentSessionId = null;
+    let pollInterval = null;
+
+    const STEPS = [
+        { name: 'universe', label: 'Fetch Universe', icon: '🌐' },
+        { name: 'prices', label: 'Fetch Prices', icon: '📈' },
+        { name: 'preprocess', label: 'Preprocess', icon: '⚙️' },
+        { name: 'correlation', label: 'Correlations', icon: '🔗' },
+        { name: 'clustering', label: 'Clustering', icon: '📊' },
+        { name: 'export', label: 'Export', icon: '💾' },
+    ];
+
+    function getConfig() {
+        return {
+            data_source: document.getElementById('config-source').value,
+            max_stocks: parseInt(document.getElementById('config-max-stocks').value) || 0,
+            period_months: parseInt(document.getElementById('config-period').value) || 18,
+            clustering_method: document.getElementById('config-method').value,
+            min_history_pct: (parseInt(document.getElementById('config-min-history').value) || 90) / 100,
+            correlation_threshold: parseFloat(document.getElementById('config-corr-threshold').value) || 0.7,
+        };
+    }
+
+    function renderSteps(sessionStatus) {
+        const container = document.getElementById('steps-container');
+        const steps = sessionStatus?.steps || STEPS.map(s => ({ ...s, completed: false, has_data: false }));
+
+        container.innerHTML = steps.map((step, idx) => {
+            const stepInfo = STEPS.find(s => s.name === step.name) || { icon: '📦', label: step.name };
+            const isCompleted = step.completed;
+            const hasData = step.has_data;
+            const result = step.result || {};
+
+            let statusBadge = '';
+            if (isCompleted) {
+                statusBadge = '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">Complete</span>';
+            } else if (hasData) {
+                statusBadge = '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">Has Data</span>';
+            }
+
+            let resultInfo = '';
+            if (result && Object.keys(result).length > 0) {
+                resultInfo = '<div class="text-xs text-gray-500 mt-1">' +
+                    Object.entries(result).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join(' | ') +
+                    '</div>';
+            }
+
+            return `
+                <div class="flex items-center justify-between p-4 border rounded-lg ${isCompleted ? 'bg-green-50 border-green-200' : 'bg-gray-50'}">
+                    <div class="flex items-center space-x-4">
+                        <span class="text-2xl">${stepInfo.icon}</span>
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="font-medium">${idx + 1}. ${stepInfo.label}</span>
+                                ${statusBadge}
+                            </div>
+                            ${resultInfo}
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        ${hasData ? `<button onclick="previewStep('${step.name}')" class="px-3 py-1 text-sm border rounded hover:bg-gray-100">Preview</button>` : ''}
+                        <button onclick="runStep('${step.name}')" class="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600">Run</button>
+                        <button onclick="runFromStep('${step.name}')" class="px-3 py-1 text-sm bg-indigo-500 text-white rounded hover:bg-indigo-600">Run From Here</button>
+                        ${hasData ? `<button onclick="clearStep('${step.name}')" class="px-3 py-1 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50">Clear</button>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function loadSessions() {
+        try {
+            const res = await fetch('/api/steps/sessions');
+            const data = await res.json();
+            const select = document.getElementById('session-select');
+            select.innerHTML = '<option value="">Load Session...</option>';
+            data.sessions.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.session_id;
+                opt.textContent = `${s.session_id} (${s.completed_steps}/${s.total_steps} steps)`;
+                select.appendChild(opt);
+            });
+        } catch (e) {
+            console.error('Error loading sessions:', e);
+        }
+    }
+
+    async function loadSession(sessionId) {
+        if (!sessionId) return;
+
+        try {
+            const res = await fetch(`/api/steps/session/${sessionId}`);
+            const status = await res.json();
+
+            currentSessionId = sessionId;
+            document.getElementById('session-id').textContent = sessionId;
+            document.getElementById('session-status').textContent =
+                `${status.completed_steps.length}/${STEPS.length} steps complete`;
+
+            // Load config from session
+            if (status.config) {
+                if (status.config.data_source) document.getElementById('config-source').value = status.config.data_source;
+                if (status.config.max_stocks) document.getElementById('config-max-stocks').value = status.config.max_stocks;
+                if (status.config.period_months) document.getElementById('config-period').value = status.config.period_months;
+                if (status.config.clustering_method) document.getElementById('config-method').value = status.config.clustering_method;
+            }
+
+            renderSteps(status);
+        } catch (e) {
+            console.error('Error loading session:', e);
+        }
+    }
+
+    async function createNewSession() {
+        try {
+            const res = await fetch('/api/steps/session/new', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ config: getConfig() }),
+            });
+            const data = await res.json();
+            currentSessionId = data.session_id;
+            document.getElementById('session-id').textContent = data.session_id;
+            document.getElementById('session-status').textContent = 'New session';
+            renderSteps(data.status);
+            loadSessions();
+            addLog('Created new session: ' + data.session_id);
+        } catch (e) {
+            console.error('Error creating session:', e);
+            addLog('ERROR: ' + e.message, 'error');
+        }
+    }
+
+    async function runStep(step) {
+        if (!currentSessionId) {
+            await createNewSession();
+        }
+
+        addLog(`Starting step: ${step}...`);
+
+        try {
+            const res = await fetch(`/api/steps/run/${step}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: currentSessionId,
+                    config: getConfig(),
+                }),
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                addLog('ERROR: ' + data.error, 'error');
+                return;
+            }
+
+            startPolling();
+        } catch (e) {
+            console.error('Error running step:', e);
+            addLog('ERROR: ' + e.message, 'error');
+        }
+    }
+
+    async function runFromStep(step) {
+        if (!currentSessionId) {
+            await createNewSession();
+        }
+
+        addLog(`Starting pipeline from step: ${step}...`);
+
+        try {
+            const res = await fetch(`/api/steps/run-from/${step}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: currentSessionId,
+                    config: getConfig(),
+                }),
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                addLog('ERROR: ' + data.error, 'error');
+                return;
+            }
+
+            startPolling();
+        } catch (e) {
+            console.error('Error running from step:', e);
+            addLog('ERROR: ' + e.message, 'error');
+        }
+    }
+
+    async function clearStep(step) {
+        if (!currentSessionId) return;
+
+        if (!confirm(`Clear ${step} and all subsequent steps?`)) return;
+
+        try {
+            const res = await fetch(`/api/steps/clear/${step}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: currentSessionId }),
+            });
+            const data = await res.json();
+            addLog(`Cleared step ${step} and subsequent steps`);
+            renderSteps(data.status);
+        } catch (e) {
+            console.error('Error clearing step:', e);
+            addLog('ERROR: ' + e.message, 'error');
+        }
+    }
+
+    async function previewStep(step) {
+        if (!currentSessionId) return;
+
+        const modal = document.getElementById('preview-modal');
+        const title = document.getElementById('preview-title');
+        const content = document.getElementById('preview-content');
+
+        title.textContent = `Step: ${step}`;
+        content.innerHTML = 'Loading...';
+        modal.classList.remove('hidden');
+
+        try {
+            const res = await fetch(`/api/steps/data/${step}?session_id=${currentSessionId}`);
+            const data = await res.json();
+
+            if (data.error) {
+                content.innerHTML = `<div class="text-red-600">Error: ${data.error}</div>`;
+                return;
+            }
+
+            content.innerHTML = `<pre class="text-sm overflow-auto">${JSON.stringify(data, null, 2)}</pre>`;
+        } catch (e) {
+            content.innerHTML = `<div class="text-red-600">Error: ${e.message}</div>`;
+        }
+    }
+
+    function startPolling() {
+        if (pollInterval) clearInterval(pollInterval);
+
+        pollInterval = setInterval(async () => {
+            try {
+                const res = await fetch('/api/steps/status');
+                const status = await res.json();
+
+                // Add new logs
+                if (status.logs && status.logs.length > 0) {
+                    const logDiv = document.getElementById('log-output');
+                    status.logs.forEach(log => {
+                        const isError = log.message.includes('ERROR');
+                        addLog(log.message, isError ? 'error' : 'info', false);
+                    });
+                }
+
+                if (!status.running) {
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+
+                    if (status.error) {
+                        addLog('Step failed: ' + status.error, 'error');
+                    }
+
+                    // Refresh session status
+                    if (currentSessionId) {
+                        loadSession(currentSessionId);
+                    }
+                }
+            } catch (e) {
+                console.error('Poll error:', e);
+            }
+        }, 1000);
+    }
+
+    function addLog(message, type = 'info', scroll = true) {
+        const logDiv = document.getElementById('log-output');
+        const time = new Date().toLocaleTimeString();
+
+        let colorClass = 'text-gray-300';
+        if (type === 'error') colorClass = 'text-red-400';
+        else if (type === 'success') colorClass = 'text-green-400';
+        else if (message.startsWith('Step')) colorClass = 'text-cyan-400';
+
+        const line = document.createElement('div');
+        line.className = colorClass;
+        line.textContent = `[${time}] ${message}`;
+        logDiv.appendChild(line);
+
+        if (scroll) {
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+    }
+
+    // Event listeners
+    document.getElementById('new-session-btn').addEventListener('click', createNewSession);
+
+    document.getElementById('run-all-btn').addEventListener('click', () => {
+        runFromStep('universe');
+    });
+
+    document.getElementById('session-select').addEventListener('change', (e) => {
+        if (e.target.value) {
+            loadSession(e.target.value);
+        }
+    });
+
+    document.getElementById('clear-logs-btn').addEventListener('click', () => {
+        document.getElementById('log-output').innerHTML = '<div class="text-gray-500">Logs cleared</div>';
+    });
+
+    document.getElementById('close-preview').addEventListener('click', () => {
+        document.getElementById('preview-modal').classList.add('hidden');
+    });
+
+    document.getElementById('preview-modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) {
+            document.getElementById('preview-modal').classList.add('hidden');
+        }
+    });
+
+    // Initialize
+    renderSteps(null);
+    loadSessions();
+</script>
+{% endblock %}
