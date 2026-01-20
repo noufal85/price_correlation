@@ -36,6 +36,84 @@
         </div>
     </div>
 
+    <!-- Stock Search -->
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Search Stock Correlations</h2>
+        <div class="flex items-center space-x-4 mb-4">
+            <div class="flex-1 max-w-md">
+                <div class="relative">
+                    <input type="text" id="stock-search" placeholder="Enter ticker symbol (e.g., AAPL)"
+                           class="w-full border rounded-lg px-4 py-2 pr-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <button id="search-btn" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <button id="clear-search-btn" class="btn-secondary hidden">Clear Search</button>
+        </div>
+
+        <!-- Search Results -->
+        <div id="search-results" class="hidden">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center space-x-4">
+                    <span id="search-ticker" class="text-2xl font-bold text-blue-600">-</span>
+                    <span id="search-company" class="text-gray-600">-</span>
+                </div>
+                <div class="text-sm text-gray-500">
+                    <span id="search-count">0</span> correlated stocks
+                </div>
+            </div>
+
+            <!-- Correlation strength filter for search -->
+            <div class="flex items-center space-x-4 mb-4">
+                <label class="text-sm text-gray-500">Filter by correlation:</label>
+                <select id="search-min-corr" class="border rounded px-3 py-1 text-sm">
+                    <option value="0">All</option>
+                    <option value="0.5">0.50+</option>
+                    <option value="0.6">0.60+</option>
+                    <option value="0.7" selected>0.70+</option>
+                    <option value="0.8">0.80+</option>
+                    <option value="0.9">0.90+</option>
+                </select>
+            </div>
+
+            <!-- Search Results Table -->
+            <div class="overflow-x-auto">
+                <table class="w-full table-hover">
+                    <thead>
+                        <tr class="text-left text-xs text-gray-500 uppercase border-b">
+                            <th class="pb-3 w-8">#</th>
+                            <th class="pb-3">Correlated Stock</th>
+                            <th class="pb-3 text-right">Correlation</th>
+                            <th class="pb-3 text-center">Strength</th>
+                            <th class="pb-3 text-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="search-results-table" class="divide-y divide-gray-100">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- No Results Message -->
+        <div id="search-no-results" class="hidden py-8 text-center text-gray-500">
+            <svg class="w-12 h-12 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <p id="search-no-results-text">No correlations found for this stock</p>
+        </div>
+
+        <!-- Search Prompt -->
+        <div id="search-prompt" class="py-8 text-center text-gray-500">
+            <svg class="w-12 h-12 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+            </svg>
+            <p>Enter a ticker symbol to find all correlated stocks</p>
+        </div>
+    </div>
+
     <!-- Correlation Distribution Chart -->
     <div class="bg-white rounded-lg shadow-md p-6">
         <h2 class="text-lg font-semibold text-gray-900 mb-4">Correlation Distribution</h2>
@@ -228,6 +306,158 @@
 
     // Initialize
     loadCorrelations();
+
+    // ==========================================
+    // Stock Search Functionality
+    // ==========================================
+
+    let currentSearchTicker = null;
+    let allSearchCorrelations = [];
+
+    async function searchStock(ticker) {
+        if (!ticker || ticker.trim() === '') return;
+
+        ticker = ticker.trim().toUpperCase();
+        currentSearchTicker = ticker;
+
+        const searchResults = document.getElementById('search-results');
+        const searchNoResults = document.getElementById('search-no-results');
+        const searchPrompt = document.getElementById('search-prompt');
+        const clearBtn = document.getElementById('clear-search-btn');
+
+        // Hide prompt, show loading state
+        searchPrompt.classList.add('hidden');
+        searchNoResults.classList.add('hidden');
+        searchResults.classList.add('hidden');
+
+        try {
+            // Fetch correlations for this stock
+            const res = await fetch(`/api/stock/${ticker}/correlations?limit=500`);
+            const data = await res.json();
+
+            if (data.error) {
+                searchNoResults.classList.remove('hidden');
+                document.getElementById('search-no-results-text').textContent = data.error;
+                clearBtn.classList.remove('hidden');
+                return;
+            }
+
+            if (!data.correlations || data.correlations.length === 0) {
+                searchNoResults.classList.remove('hidden');
+                document.getElementById('search-no-results-text').textContent = `No correlations found for ${ticker}`;
+                clearBtn.classList.remove('hidden');
+                return;
+            }
+
+            // Store all correlations for filtering
+            allSearchCorrelations = data.correlations;
+
+            // Update header
+            document.getElementById('search-ticker').textContent = ticker;
+
+            // Try to fetch company name
+            try {
+                const infoRes = await fetch(`/api/stock/${ticker}/fundamentals`);
+                const infoData = await infoRes.json();
+                document.getElementById('search-company').textContent = infoData.name || '';
+            } catch (e) {
+                document.getElementById('search-company').textContent = '';
+            }
+
+            // Show results
+            searchResults.classList.remove('hidden');
+            clearBtn.classList.remove('hidden');
+
+            // Render with current filter
+            renderSearchResults();
+
+        } catch (e) {
+            console.error('Search error:', e);
+            searchNoResults.classList.remove('hidden');
+            document.getElementById('search-no-results-text').textContent = 'Error searching for stock';
+            clearBtn.classList.remove('hidden');
+        }
+    }
+
+    function renderSearchResults() {
+        const minCorr = parseFloat(document.getElementById('search-min-corr').value) || 0;
+        const filtered = allSearchCorrelations.filter(c => Math.abs(c.correlation) >= minCorr);
+
+        document.getElementById('search-count').textContent = filtered.length;
+
+        const tbody = document.getElementById('search-results-table');
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-400">No correlations above threshold</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = filtered.map((c, i) => {
+            const strength = getStrengthIndicator(c.correlation);
+            const barWidth = Math.round((Math.abs(c.correlation) - 0.5) * 200); // Scale 0.5-1.0 to 0-100
+
+            return `
+                <tr class="hover:bg-gray-50">
+                    <td class="py-3 text-sm text-gray-400">${i + 1}</td>
+                    <td class="py-3">
+                        <a href="/stock/${c.ticker}" class="text-blue-600 hover:underline font-medium">${c.ticker}</a>
+                    </td>
+                    <td class="py-3 text-right">
+                        <span class="font-mono font-semibold ${c.correlation >= 0 ? 'text-green-600' : 'text-red-600'}">${c.correlation.toFixed(4)}</span>
+                    </td>
+                    <td class="py-3">
+                        <div class="flex items-center justify-center">
+                            <div class="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div class="${strength.class} h-full" style="width: ${Math.min(barWidth, 100)}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="py-3 text-center">
+                        <button onclick="openCompare('${currentSearchTicker}', '${c.ticker}', ${c.correlation})"
+                                class="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600">
+                            Compare
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function clearSearch() {
+        currentSearchTicker = null;
+        allSearchCorrelations = [];
+
+        document.getElementById('stock-search').value = '';
+        document.getElementById('search-results').classList.add('hidden');
+        document.getElementById('search-no-results').classList.add('hidden');
+        document.getElementById('search-prompt').classList.remove('hidden');
+        document.getElementById('clear-search-btn').classList.add('hidden');
+    }
+
+    // Search event listeners
+    document.getElementById('search-btn').addEventListener('click', () => {
+        const ticker = document.getElementById('stock-search').value;
+        searchStock(ticker);
+    });
+
+    document.getElementById('stock-search').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            const ticker = document.getElementById('stock-search').value;
+            searchStock(ticker);
+        }
+    });
+
+    document.getElementById('clear-search-btn').addEventListener('click', clearSearch);
+
+    document.getElementById('search-min-corr').addEventListener('change', () => {
+        if (currentSearchTicker && allSearchCorrelations.length > 0) {
+            renderSearchResults();
+        }
+    });
+
+    // ==========================================
+    // End Stock Search Functionality
+    // ==========================================
 
     // Open comparison in new popup window
     function openCompare(tickerA, tickerB, correlation) {
