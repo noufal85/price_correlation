@@ -8,7 +8,11 @@
     <div class="flex justify-between items-center">
         <h1 class="text-2xl font-bold text-gray-900">Cluster Analysis</h1>
         <div class="flex items-center space-x-4">
-            <span class="text-sm text-gray-500">Analysis Date:</span>
+            <label class="text-sm text-gray-500">Method:</label>
+            <select id="method-select" class="border rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Loading...</option>
+            </select>
+            <span class="text-sm text-gray-500 ml-4">Date:</span>
             <span id="analysis-date" class="font-semibold">-</span>
         </div>
     </div>
@@ -54,11 +58,28 @@
 {% block scripts %}
 <script>
     let clusterChart = null;
+    let currentMethod = null;
 
-    async function loadClusters() {
+    async function loadClusters(method = null) {
         try {
-            const res = await fetch('/api/clusters');
+            const params = method ? `?method=${encodeURIComponent(method)}` : '';
+            const res = await fetch(`/api/clusters${params}`);
             const data = await res.json();
+
+            // Update method dropdown
+            const methodSelect = document.getElementById('method-select');
+            const availableMethods = data.available_methods || [];
+            currentMethod = data.clustering_method;
+
+            if (availableMethods.length > 0) {
+                methodSelect.innerHTML = availableMethods.map(m => {
+                    const label = m.replace('_', '-').replace(/\b\w/g, c => c.toUpperCase());
+                    const selected = m === currentMethod ? 'selected' : '';
+                    return `<option value="${m}" ${selected}>${label}</option>`;
+                }).join('');
+            } else {
+                methodSelect.innerHTML = '<option value="">No methods available</option>';
+            }
 
             document.getElementById('analysis-date').textContent = data.analysis_date;
             document.getElementById('stat-total').textContent = data.total_stocks;
@@ -106,7 +127,8 @@
             }).join('');
 
             // Load chart data
-            const chartRes = await fetch('/api/charts/cluster-sizes');
+            const chartParams = currentMethod ? `?method=${encodeURIComponent(currentMethod)}` : '';
+            const chartRes = await fetch(`/api/charts/cluster-sizes${chartParams}`);
             const chartData = await chartRes.json();
 
             // Create chart
@@ -150,6 +172,11 @@
                 '<div class="text-red-500 text-center py-8">Error loading clusters</div>';
         }
     }
+
+    // Handle method change
+    document.getElementById('method-select').addEventListener('change', function() {
+        loadClusters(this.value);
+    });
 
     loadClusters();
 </script>

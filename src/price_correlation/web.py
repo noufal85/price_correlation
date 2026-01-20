@@ -387,6 +387,7 @@ def get_runs():
 def get_clusters():
     """Get cluster assignments for latest run."""
     analysis_date = request.args.get("date")
+    method = request.args.get("method")
 
     conn = get_db_connection()
     if not conn:
@@ -395,6 +396,7 @@ def get_clusters():
     try:
         cursor = conn.cursor()
 
+        # Get the latest analysis date if not specified
         if analysis_date:
             date_filter = analysis_date
         else:
@@ -402,12 +404,28 @@ def get_clusters():
             result = cursor.fetchone()
             date_filter = result[0] if result[0] else date.today()
 
+        # Get available methods for this date
+        cursor.execute("""
+            SELECT DISTINCT clustering_method
+            FROM price_correlation.equity_clusters
+            WHERE analysis_date = %s
+            ORDER BY clustering_method
+        """, (date_filter,))
+        available_methods = [row[0] for row in cursor.fetchall()]
+
+        # Use first available method if none specified
+        if not method and available_methods:
+            method = available_methods[0]
+        elif not method:
+            method = "hierarchical"
+
+        # Get clusters for the specified method
         cursor.execute("""
             SELECT ticker, cluster_id
             FROM price_correlation.equity_clusters
-            WHERE analysis_date = %s
+            WHERE analysis_date = %s AND clustering_method = %s
             ORDER BY cluster_id, ticker
-        """, (date_filter,))
+        """, (date_filter, method))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -421,6 +439,8 @@ def get_clusters():
 
         return jsonify({
             "analysis_date": str(date_filter),
+            "clustering_method": method,
+            "available_methods": available_methods,
             "clusters": clusters,
             "total_stocks": len(rows),
             "n_clusters": len([k for k in clusters if k != -1]),
@@ -852,6 +872,8 @@ def get_market_movers():
 @app.route("/api/charts/cluster-sizes")
 def chart_cluster_sizes():
     """Get cluster size data for charts."""
+    method = request.args.get("method")
+
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Database not available"}), 503
@@ -863,13 +885,24 @@ def chart_cluster_sizes():
         result = cursor.fetchone()
         date_filter = result[0] if result[0] else date.today()
 
+        # Get default method if not specified
+        if not method:
+            cursor.execute("""
+                SELECT DISTINCT clustering_method
+                FROM price_correlation.equity_clusters
+                WHERE analysis_date = %s
+                ORDER BY clustering_method LIMIT 1
+            """, (date_filter,))
+            row = cursor.fetchone()
+            method = row[0] if row else "hierarchical"
+
         cursor.execute("""
             SELECT cluster_id, COUNT(*) as size
             FROM price_correlation.equity_clusters
-            WHERE analysis_date = %s
+            WHERE analysis_date = %s AND clustering_method = %s
             GROUP BY cluster_id
             ORDER BY size DESC
-        """, (date_filter,))
+        """, (date_filter, method))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -887,6 +920,7 @@ def chart_cluster_sizes():
             "labels": labels,
             "data": sizes,
             "analysis_date": str(date_filter),
+            "clustering_method": method,
         })
     except Exception as e:
         logger.error(f"Error fetching cluster sizes: {e}")

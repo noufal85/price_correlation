@@ -169,6 +169,7 @@ class TimescaleClient:
         labels: np.ndarray,
         tickers: list[str],
         analysis_date: date | None = None,
+        clustering_method: str = "hierarchical",
     ) -> int:
         """
         Export cluster assignments to database.
@@ -177,6 +178,7 @@ class TimescaleClient:
             labels: Cluster labels array
             tickers: List of ticker symbols
             analysis_date: Analysis date (defaults to today)
+            clustering_method: Name of clustering method used
 
         Returns:
             Number of rows inserted
@@ -188,15 +190,15 @@ class TimescaleClient:
         cursor = conn.cursor()
 
         try:
-            # Delete existing entries for this date
+            # Delete existing entries for this date and method
             cursor.execute(
-                f"DELETE FROM {TABLE_EQUITY_CLUSTERS} WHERE analysis_date = %s",
-                (analysis_date,),
+                f"DELETE FROM {TABLE_EQUITY_CLUSTERS} WHERE analysis_date = %s AND clustering_method = %s",
+                (analysis_date, clustering_method),
             )
 
             # Insert new entries
             values = [
-                (analysis_date, ticker, int(label))
+                (analysis_date, ticker, int(label), clustering_method)
                 for ticker, label in zip(tickers, labels)
             ]
 
@@ -205,16 +207,16 @@ class TimescaleClient:
             execute_values(
                 cursor,
                 f"""
-                INSERT INTO {TABLE_EQUITY_CLUSTERS} (analysis_date, ticker, cluster_id)
+                INSERT INTO {TABLE_EQUITY_CLUSTERS} (analysis_date, ticker, cluster_id, clustering_method)
                 VALUES %s
-                ON CONFLICT (analysis_date, ticker)
+                ON CONFLICT (analysis_date, ticker, clustering_method)
                 DO UPDATE SET cluster_id = EXCLUDED.cluster_id
                 """,
                 values,
             )
 
             conn.commit()
-            logger.info(f"Exported {len(values)} rows to {TABLE_EQUITY_CLUSTERS}")
+            logger.info(f"Exported {len(values)} rows to {TABLE_EQUITY_CLUSTERS} (method={clustering_method})")
             return len(values)
 
         except Exception as e:
@@ -305,7 +307,7 @@ class TimescaleClient:
         n_clusters: int,
         n_noise: int = 0,
         silhouette_score: float | None = None,
-        clustering_method: str | None = None,
+        clustering_method: str = "hierarchical",
         execution_time_seconds: float | None = None,
         analysis_date: date | None = None,
     ) -> None:
@@ -323,13 +325,12 @@ class TimescaleClient:
                     (analysis_date, n_stocks_processed, n_clusters, n_noise,
                      silhouette_score, clustering_method, execution_time_seconds)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (analysis_date)
+                ON CONFLICT (analysis_date, clustering_method)
                 DO UPDATE SET
                     n_stocks_processed = EXCLUDED.n_stocks_processed,
                     n_clusters = EXCLUDED.n_clusters,
                     n_noise = EXCLUDED.n_noise,
                     silhouette_score = EXCLUDED.silhouette_score,
-                    clustering_method = EXCLUDED.clustering_method,
                     execution_time_seconds = EXCLUDED.execution_time_seconds,
                     created_at = NOW()
                 """,
@@ -345,7 +346,7 @@ class TimescaleClient:
             )
 
             conn.commit()
-            logger.info(f"Exported run metadata to {TABLE_ANALYSIS_RUNS} for {analysis_date}")
+            logger.info(f"Exported run metadata to {TABLE_ANALYSIS_RUNS} for {analysis_date} (method={clustering_method})")
 
         except Exception as e:
             conn.rollback()
@@ -439,8 +440,8 @@ def export_to_timescaledb(
 
     try:
         # Export clusters
-        print(f"    Exporting {len(tickers)} cluster assignments to {TABLE_EQUITY_CLUSTERS}...", flush=True)
-        clusters_count = client.export_clusters(labels, tickers, analysis_date)
+        print(f"    Exporting {len(tickers)} cluster assignments to {TABLE_EQUITY_CLUSTERS} (method={clustering_method})...", flush=True)
+        clusters_count = client.export_clusters(labels, tickers, analysis_date, clustering_method)
         print(f"    {TABLE_EQUITY_CLUSTERS}: {clusters_count} rows", flush=True)
 
         # Export correlations
