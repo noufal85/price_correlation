@@ -12,7 +12,10 @@ import numpy as np
 import pandas as pd
 
 from .cache import get_cache, TTL_PRICES, TTL_UNIVERSE
-from .clustering import cluster_hierarchical, cut_dendrogram, find_optimal_k, cluster_dbscan, find_optimal_eps
+from .clustering import (
+    cluster_hierarchical, cut_dendrogram, find_optimal_k,
+    cluster_dbscan, find_optimal_eps, run_multiple_clustering,
+)
 from .correlation import compute_correlation_matrix, correlation_to_distance, get_condensed_distance, get_highly_correlated_pairs
 from .export import export_all
 from .pipeline_state import PipelineStateManager, get_state_manager, PIPELINE_STEPS
@@ -41,9 +44,20 @@ class StepConfig:
     min_history_pct: float = 0.90
     remove_market_factor: bool = False
 
-    # Clustering
-    clustering_method: str = "hierarchical"
+    # Clustering - supports multiple methods
+    clustering_method: str = "hierarchical"  # Legacy single method
+    clustering_methods: list = field(default_factory=lambda: ["hierarchical"])  # Multiple methods
     n_clusters: int | None = None
+
+    # Method-specific settings
+    hierarchical_k: int | None = None
+    hierarchical_linkage: str = "ward"
+    hdbscan_min_cluster_size: int = 10
+    hdbscan_min_samples: int = 5
+    kmeans_n_clusters: int | None = None
+    kmeans_pca_components: int = 50
+    louvain_threshold: float = 0.5
+    louvain_resolution: float = 1.0
 
     # Export
     output_dir: str = "./output"
@@ -60,7 +74,16 @@ class StepConfig:
             "min_history_pct": self.min_history_pct,
             "remove_market_factor": self.remove_market_factor,
             "clustering_method": self.clustering_method,
+            "clustering_methods": self.clustering_methods,
             "n_clusters": self.n_clusters,
+            "hierarchical_k": self.hierarchical_k,
+            "hierarchical_linkage": self.hierarchical_linkage,
+            "hdbscan_min_cluster_size": self.hdbscan_min_cluster_size,
+            "hdbscan_min_samples": self.hdbscan_min_samples,
+            "kmeans_n_clusters": self.kmeans_n_clusters,
+            "kmeans_pca_components": self.kmeans_pca_components,
+            "louvain_threshold": self.louvain_threshold,
+            "louvain_resolution": self.louvain_resolution,
             "output_dir": self.output_dir,
             "correlation_threshold": self.correlation_threshold,
         }
@@ -401,10 +424,11 @@ def run_step_clustering(
     progress_callback: Callable[[str], None] | None = None,
 ) -> dict:
     """
-    Step 5: Run clustering algorithm.
+    Step 5: Run clustering algorithm(s).
 
+    Supports running multiple clustering methods on the same correlation data.
     Requires: correlation step complete.
-    Returns dict with labels, stats, method info.
+    Returns dict with results for each method.
     """
     state_manager.state.mark_step_started("clustering")
     state_manager.save_state()
@@ -419,49 +443,83 @@ def run_step_clustering(
         if corr_data is None:
             raise ValueError("Correlation data not found. Run correlation step first.")
 
+        # Also need preprocessed returns for kmeans_pca
+        preprocess_data = state_manager.load_step_data("preprocess")
+
         dist_matrix = corr_data["dist_matrix"]
         condensed_dist = corr_data["condensed_dist"]
+        corr_matrix = corr_data["corr_matrix"]
         tickers = corr_data["tickers"]
 
         log(f"Step 5: Clustering {len(tickers)} stocks...")
 
-        if config.clustering_method == "dbscan":
-            eps = find_optimal_eps(dist_matrix)
-            labels = cluster_dbscan(dist_matrix, eps=eps)
-            method_info = f"DBSCAN (eps={eps:.3f})"
-        else:
-            Z = cluster_hierarchical(condensed_dist, method="average")
-            if config.n_clusters:
-                best_k = config.n_clusters
-                best_score = compute_silhouette(dist_matrix, cut_dendrogram(Z, n_clusters=best_k) - 1)
-            else:
-                best_k, best_score = find_optimal_k(Z, dist_matrix)
-            labels = cut_dendrogram(Z, n_clusters=best_k) - 1
-            method_info = f"Hierarchical (k={best_k})"
+        # Determine which methods to run
+        methods = config.clustering_methods
+        if not methods:
+            # Fallback to legacy single method
+            methods = [config.clustering_method]
 
-        log(f"  Method: {method_info}")
+        log(f"  Methods to run: {methods}")
 
-        silhouette = compute_silhouette(dist_matrix, labels)
-        stats = compute_cluster_stats(labels, tickers)
-
-        log(f"  Silhouette score: {silhouette:.3f}")
-        log(f"  Clusters: {stats['n_clusters']}, Noise: {stats['n_noise']}")
-
-        result = {
-            "labels": labels,
-            "tickers": tickers,
-            "stats": stats,
-            "silhouette": silhouette,
-            "method": config.clustering_method,
-            "method_info": method_info,
+        # Build config dict for clustering
+        clustering_config = {
+            "hierarchical_k": config.hierarchical_k or config.n_clusters,
+            "hierarchical_linkage": config.hierarchical_linkage,
+            "hdbscan_min_cluster_size": config.hdbscan_min_cluster_size,
+            "hdbscan_min_samples": config.hdbscan_min_samples,
+            "kmeans_n_clusters": config.kmeans_n_clusters,
+            "kmeans_pca_components": config.kmeans_pca_components,
+            "louvain_threshold": config.louvain_threshold,
+            "louvain_resolution": config.louvain_resolution,
         }
 
-        state_manager.store_step_data("clustering", result, {
-            "n_clusters": stats["n_clusters"],
-            "n_noise": stats["n_noise"],
-            "silhouette": round(silhouette, 4),
-            "method": method_info,
-        })
+        # Run multiple clustering methods
+        multi_results = run_multiple_clustering(
+            distance_matrix=dist_matrix,
+            condensed_distance=condensed_dist,
+            corr_matrix=corr_matrix,
+            returns_df=preprocess_data if preprocess_data is not None else pd.DataFrame(),
+            methods=methods,
+            config=clustering_config,
+        )
+
+        # Summarize results
+        log("")
+        log("  Clustering Results Summary:")
+        log("  " + "-" * 60)
+        for method, res in multi_results.items():
+            if "error" in res:
+                log(f"  {method}: FAILED - {res['error']}")
+            else:
+                log(f"  {method}: {res['n_clusters']} clusters, {res['n_noise']} noise, silhouette={res['silhouette']:.4f}")
+        log("  " + "-" * 60)
+
+        # Use first successful method as primary for backward compatibility
+        primary_method = methods[0]
+        primary_result = multi_results.get(primary_method, {})
+        primary_labels = primary_result.get("labels", np.zeros(len(tickers), dtype=int))
+        primary_stats = compute_cluster_stats(primary_labels, tickers)
+
+        result = {
+            "labels": primary_labels,
+            "tickers": tickers,
+            "stats": primary_stats,
+            "silhouette": primary_result.get("silhouette", 0.0),
+            "method": primary_method,
+            "method_info": f"{primary_method} ({primary_result.get('n_clusters', 0)} clusters)",
+            "all_methods": multi_results,  # Store all results
+        }
+
+        # Build summary for state storage
+        summary = {
+            "primary_method": primary_method,
+            "n_clusters": primary_stats["n_clusters"],
+            "n_noise": primary_stats["n_noise"],
+            "silhouette": round(primary_result.get("silhouette", 0.0), 4),
+            "methods_run": list(multi_results.keys()),
+        }
+
+        state_manager.store_step_data("clustering", result, summary)
         return result
 
     except Exception as e:

@@ -52,12 +52,31 @@
                 <label class="block text-sm font-medium text-gray-700 mb-1">Period (Months)</label>
                 <input type="number" id="config-period" value="18" class="w-full border rounded px-3 py-2">
             </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Clustering Method</label>
-                <select id="config-method" class="w-full border rounded px-3 py-2">
-                    <option value="hierarchical">Hierarchical</option>
-                    <option value="dbscan">DBSCAN</option>
-                </select>
+            <div class="md:col-span-2">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Clustering Methods (select multiple)</label>
+                <div class="flex flex-wrap gap-3 mt-1">
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" id="method-hierarchical" value="hierarchical" checked class="clustering-method rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm text-gray-700">Hierarchical</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" id="method-hdbscan" value="hdbscan" class="clustering-method rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm text-gray-700">HDBSCAN</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" id="method-kmeans-pca" value="kmeans_pca" class="clustering-method rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm text-gray-700">K-Means PCA</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" id="method-louvain" value="louvain" class="clustering-method rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm text-gray-700">Louvain</span>
+                    </label>
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" id="method-dbscan" value="dbscan" class="clustering-method rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm text-gray-700">DBSCAN</span>
+                    </label>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">Select one or more methods to compare clustering results</p>
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Min History %</label>
@@ -154,11 +173,23 @@
 
     function getConfig() {
         const dataSource = document.getElementById('config-source').value;
+
+        // Collect selected clustering methods
+        const selectedMethods = [];
+        document.querySelectorAll('.clustering-method:checked').forEach(cb => {
+            selectedMethods.push(cb.value);
+        });
+        // Default to hierarchical if nothing selected
+        if (selectedMethods.length === 0) {
+            selectedMethods.push('hierarchical');
+        }
+
         const config = {
             data_source: dataSource,
             max_stocks: parseInt(document.getElementById('config-max-stocks').value) || 0,
             period_months: parseInt(document.getElementById('config-period').value) || 18,
-            clustering_method: document.getElementById('config-method').value,
+            clustering_method: selectedMethods[0],  // Legacy: first selected method
+            clustering_methods: selectedMethods,     // New: all selected methods
             min_history_pct: (parseInt(document.getElementById('config-min-history').value) || 90) / 100,
             correlation_threshold: parseFloat(document.getElementById('config-corr-threshold').value) || 0.7,
             filters: {},

@@ -19,6 +19,9 @@ dependencies = [
     "flask>=3.0.0",
     "gunicorn>=21.0.0",
     "lxml>=4.9.0",
+    "hdbscan>=0.8.33",
+    "python-louvain>=0.16",
+    "networkx>=3.0",
 ]
 
 [project.optional-dependencies]
