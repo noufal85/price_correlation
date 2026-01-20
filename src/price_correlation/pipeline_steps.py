@@ -568,12 +568,15 @@ def run_step_export(
         stats = clustering_data["stats"]
         silhouette = clustering_data["silhouette"]
         corr_matrix = corr_data["corr_matrix"]
+        all_methods = clustering_data.get("all_methods", {})
+        primary_method = clustering_data.get("method", config.clustering_method)
 
         output_dir = Path(config.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
         execution_time = time.time() - start_time if start_time else 0
 
+        # Export files (JSON/Parquet) using primary method
         output_files = export_all(
             labels,
             tickers,
@@ -583,19 +586,46 @@ def run_step_export(
             n_clusters=stats["n_clusters"],
             n_noise=stats["n_noise"],
             silhouette_score=silhouette,
-            clustering_method=config.clustering_method,
+            clustering_method=primary_method,
             execution_time_seconds=execution_time,
+            export_db=False,  # We'll handle DB export separately for all methods
         )
 
         for name, item in output_files.items():
-            if name == "db_export":
-                if item.get("success"):
-                    log(f"  {name}: {item['clusters_exported']} clusters, "
-                        f"{item['correlations_exported']} correlations exported")
+            log(f"  {name}: {item}")
+
+        # Export ALL clustering methods to database
+        from .db import export_to_timescaledb, is_db_export_enabled
+        if is_db_export_enabled() and all_methods:
+            log("")
+            log("  Exporting all clustering methods to database...")
+            for method_name, method_result in all_methods.items():
+                if "error" in method_result:
+                    log(f"    {method_name}: skipped (failed during clustering)")
+                    continue
+
+                method_labels = method_result.get("labels")
+                if method_labels is None:
+                    continue
+
+                db_result = export_to_timescaledb(
+                    labels=method_labels,
+                    tickers=tickers,
+                    corr_matrix=corr_matrix,
+                    n_clusters=method_result.get("n_clusters", 0),
+                    n_noise=method_result.get("n_noise", 0),
+                    silhouette_score=method_result.get("silhouette"),
+                    clustering_method=method_name,
+                    execution_time_seconds=execution_time,
+                    correlation_threshold=config.correlation_threshold,
+                )
+
+                if db_result.get("success"):
+                    log(f"    {method_name}: {db_result['clusters_exported']} clusters exported")
                 else:
-                    log(f"  {name}: {item.get('message', 'failed')}")
-            else:
-                log(f"  {name}: {item}")
+                    log(f"    {method_name}: {db_result.get('message', 'failed')}")
+
+            output_files["db_export"] = {"success": True, "methods_exported": list(all_methods.keys())}
 
         # Summary
         log("")
