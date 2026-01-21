@@ -86,6 +86,8 @@
                         <tr class="text-left text-xs text-gray-500 uppercase border-b">
                             <th class="pb-3 w-8">#</th>
                             <th class="pb-3">Correlated Stock</th>
+                            <th class="pb-3">Sector</th>
+                            <th class="pb-3">Industry</th>
                             <th class="pb-3 text-right">Correlation</th>
                             <th class="pb-3 text-center">Strength</th>
                             <th class="pb-3 text-center">Actions</th>
@@ -473,6 +475,9 @@
         }
     }
 
+    // Cache for stock profiles
+    let stockProfileCache = {};
+
     function renderSearchResults() {
         const minCorr = parseFloat(document.getElementById('search-min-corr').value) || 0;
         const filtered = allSearchCorrelations.filter(c => Math.abs(c.correlation) >= minCorr);
@@ -482,20 +487,24 @@
         const tbody = document.getElementById('search-results-table');
 
         if (filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-400">No correlations above threshold</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-gray-400">No correlations above threshold</td></tr>';
             return;
         }
 
         tbody.innerHTML = filtered.map((c, i) => {
             const strength = getStrengthIndicator(c.correlation);
             const barWidth = Math.round((Math.abs(c.correlation) - 0.5) * 200); // Scale 0.5-1.0 to 0-100
+            const cached = stockProfileCache[c.ticker];
 
             return `
-                <tr class="hover:bg-gray-50">
+                <tr class="hover:bg-gray-50" data-ticker="${c.ticker}">
                     <td class="py-3 text-sm text-gray-400">${i + 1}</td>
                     <td class="py-3">
                         <button onclick="openStockModal('${c.ticker}', '${currentSearchTicker}')" class="text-blue-600 hover:underline font-medium">${c.ticker}</button>
+                        <div class="text-xs text-gray-500 stock-name" data-ticker="${c.ticker}">${cached?.companyName || ''}</div>
                     </td>
+                    <td class="py-3 text-sm stock-sector" data-ticker="${c.ticker}">${cached?.sector || '<span class="text-gray-300">Loading...</span>'}</td>
+                    <td class="py-3 text-sm stock-industry" data-ticker="${c.ticker}">${cached?.industry || '<span class="text-gray-300">Loading...</span>'}</td>
                     <td class="py-3 text-right">
                         <span class="font-mono font-semibold ${c.correlation >= 0 ? 'text-green-600' : 'text-red-600'}">${c.correlation.toFixed(4)}</span>
                     </td>
@@ -515,6 +524,56 @@
                 </tr>
             `;
         }).join('');
+
+        // Fetch profiles for stocks not in cache
+        const tickersToFetch = filtered
+            .map(c => c.ticker)
+            .filter(t => !stockProfileCache[t]);
+
+        if (tickersToFetch.length > 0) {
+            fetchStockProfiles(tickersToFetch);
+        }
+    }
+
+    async function fetchStockProfiles(tickers) {
+        // Fetch profiles in parallel (limit to 10 at a time to avoid overwhelming the API)
+        const batchSize = 10;
+        for (let i = 0; i < tickers.length; i += batchSize) {
+            const batch = tickers.slice(i, i + batchSize);
+            const promises = batch.map(async (ticker) => {
+                try {
+                    const res = await fetch(`/api/fmp/profile/${ticker}`);
+                    const data = await res.json();
+                    if (data && !data.error) {
+                        stockProfileCache[ticker] = data;
+                        updateStockProfileInTable(ticker, data);
+                    }
+                } catch (e) {
+                    console.error(`Error fetching profile for ${ticker}:`, e);
+                }
+            });
+            await Promise.all(promises);
+        }
+    }
+
+    function updateStockProfileInTable(ticker, profile) {
+        // Update company name
+        const nameEls = document.querySelectorAll(`.stock-name[data-ticker="${ticker}"]`);
+        nameEls.forEach(el => {
+            el.textContent = profile.companyName || '';
+        });
+
+        // Update sector
+        const sectorEls = document.querySelectorAll(`.stock-sector[data-ticker="${ticker}"]`);
+        sectorEls.forEach(el => {
+            el.textContent = profile.sector || '-';
+        });
+
+        // Update industry
+        const industryEls = document.querySelectorAll(`.stock-industry[data-ticker="${ticker}"]`);
+        industryEls.forEach(el => {
+            el.textContent = profile.industry || '-';
+        });
     }
 
     function clearSearch() {
