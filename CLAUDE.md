@@ -307,16 +307,15 @@ deactivate
   - Any backend code changes
 - Use the restart command below after committing changes
 
-### Restart Command
+### Restart Command (Docker)
 ```bash
-# Kill existing web server and restart (adjust for your environment)
-pkill -f "python.*5000" || true
-# Then restart using your preferred method (cli.py option 'w' or direct run)
+# Rebuild and restart Docker container
+cd /home/noufal/price_correlation && docker-compose down && docker-compose up -d --build
 ```
 
 ### Note for Claude
-- After making changes that affect the web UI, remind user to restart the web server
-- Cannot auto-restart as the Python environment varies by setup
+- ALWAYS run the Docker restart command after making changes to Python/template files
+- If port 5000 is in use, check for other containers: `docker ps | grep 5000`
 
 ### Web Server URL
 - Local: http://localhost:5000
