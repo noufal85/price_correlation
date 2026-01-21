@@ -308,6 +308,30 @@
                 borderClass = 'bg-green-50 border-green-200';
             }
 
+            // Persistent status line below each step
+            let statusLine = '';
+            if (hasError) {
+                statusLine = `
+                    <div class="mt-1 ml-14 px-3 py-2 bg-red-100 border border-red-300 rounded text-sm text-red-800 flex items-center">
+                        <svg class="w-4 h-4 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                        <span><strong>Failed:</strong> ${step.error || 'Unknown error'}</span>
+                    </div>
+                `;
+            } else if (isCompleted) {
+                const timestamp = step.completed_at ? new Date(step.completed_at).toLocaleTimeString() : '';
+                const duration = step.duration ? ` (${step.duration.toFixed(1)}s)` : '';
+                statusLine = `
+                    <div class="mt-1 ml-14 px-3 py-2 bg-green-100 border border-green-300 rounded text-sm text-green-800 flex items-center">
+                        <svg class="w-4 h-4 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                        <span><strong>Completed</strong>${timestamp ? ` at ${timestamp}` : ''}${duration}</span>
+                    </div>
+                `;
+            }
+
             return `
                 <div class="step-container" data-step="${step.name}">
                     <div class="flex items-center justify-between p-4 border rounded-lg ${borderClass}">
@@ -328,6 +352,7 @@
                             ${hasData ? `<button onclick="clearStep('${step.name}')" class="px-3 py-1 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50">Clear</button>` : ''}
                         </div>
                     </div>
+                    ${statusLine}
                     ${notificationHtml}
                 </div>
             `;

@@ -58,6 +58,9 @@ class PipelineState:
     # Step results summary (not full data)
     step_results: dict = field(default_factory=dict)
 
+    # Step timing info: {step_name: {"started_at": ..., "completed_at": ..., "duration": ...}}
+    step_timing: dict = field(default_factory=dict)
+
     # Error tracking
     error: str = ""
     error_step: str = ""
@@ -79,9 +82,28 @@ class PipelineState:
         if result_summary:
             self.step_results[step] = result_summary
 
+        # Record completion time and calculate duration
+        now = datetime.now()
+        if step not in self.step_timing:
+            self.step_timing[step] = {}
+        self.step_timing[step]["completed_at"] = now.isoformat()
+
+        # Calculate duration if we have start time
+        if "started_at" in self.step_timing[step]:
+            try:
+                started = datetime.fromisoformat(self.step_timing[step]["started_at"])
+                self.step_timing[step]["duration"] = (now - started).total_seconds()
+            except (ValueError, TypeError):
+                pass
+
     def mark_step_started(self, step: str):
         self.current_step = step
         self.updated_at = datetime.now().isoformat()
+
+        # Record start time
+        if step not in self.step_timing:
+            self.step_timing[step] = {}
+        self.step_timing[step]["started_at"] = datetime.now().isoformat()
 
     def mark_error(self, step: str, error: str):
         self.error = error
@@ -97,6 +119,7 @@ class PipelineState:
             self.completed_steps = [s for s in self.completed_steps if s not in steps_to_remove]
             for s in steps_to_remove:
                 self.step_results.pop(s, None)
+                self.step_timing.pop(s, None)
         self.error = ""
         self.error_step = ""
         self.updated_at = datetime.now().isoformat()
@@ -331,6 +354,9 @@ class PipelineStateManager:
                     "completed": state.is_step_complete(step),
                     "has_data": self.has_step_data(step),
                     "result": state.step_results.get(step),
+                    "error": state.error if state.error_step == step else None,
+                    "completed_at": state.step_timing.get(step, {}).get("completed_at"),
+                    "duration": state.step_timing.get(step, {}).get("duration"),
                 }
                 for step in PIPELINE_STEPS
             ],
