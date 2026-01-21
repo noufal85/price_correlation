@@ -2,6 +2,18 @@
 
 {% block title %}Pipeline Steps - Stock Clustering{% endblock %}
 
+{% block head %}
+<style>
+    @keyframes fade-in {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fade-in {
+        animation: fade-in 0.3s ease-out;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="space-y-6">
     <!-- Header -->
@@ -161,6 +173,8 @@
 <script>
     let currentSessionId = null;
     let pollInterval = null;
+    let stepNotifications = {};  // Track notifications for each step
+    let lastStepStates = {};     // Track previous step states to detect changes
 
     const STEPS = [
         { name: 'universe', label: 'Fetch Universe', icon: '🌐' },
@@ -216,18 +230,48 @@
         }
     }
 
-    function renderSteps(sessionStatus) {
+    function renderSteps(sessionStatus, detectChanges = false) {
         const container = document.getElementById('steps-container');
         const steps = sessionStatus?.steps || STEPS.map(s => ({ ...s, completed: false, has_data: false }));
+
+        // Detect state changes for notifications
+        if (detectChanges) {
+            steps.forEach(step => {
+                const prevState = lastStepStates[step.name];
+                const currentState = { completed: step.completed, error: step.error };
+
+                if (prevState) {
+                    // Step just completed
+                    if (!prevState.completed && currentState.completed) {
+                        showStepNotification(step.name, 'success', 'Step completed successfully');
+                    }
+                    // Step just failed
+                    if (!prevState.error && currentState.error) {
+                        showStepNotification(step.name, 'error', currentState.error);
+                    }
+                }
+
+                lastStepStates[step.name] = currentState;
+            });
+        } else {
+            // Initialize state tracking
+            steps.forEach(step => {
+                lastStepStates[step.name] = { completed: step.completed, error: step.error };
+            });
+        }
 
         container.innerHTML = steps.map((step, idx) => {
             const stepInfo = STEPS.find(s => s.name === step.name) || { icon: '📦', label: step.name };
             const isCompleted = step.completed;
             const hasData = step.has_data;
+            const hasError = step.error;
             const result = step.result || {};
+            const notification = stepNotifications[step.name];
 
             let statusBadge = '';
-            if (isCompleted) {
+            if (hasError) {
+                statusBadge = '<span class="px-2 py-1 bg-red-100 text-red-800 text-xs rounded">Failed</span>';
+            } else if (isCompleted) {
                 statusBadge = '<span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">Complete</span>';
             } else if (hasData) {
                 statusBadge = '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded">Has Data</span>';
@@ -240,27 +284,75 @@
                     '</div>';
             }
 
+            let notificationHtml = '';
+            if (notification) {
+                const notifClass = notification.type === 'success'
+                    ? 'bg-green-50 border-green-300 text-green-800'
+                    : 'bg-red-50 border-red-300 text-red-800';
+                const icon = notification.type === 'success' ? '✓' : '✗';
+                notificationHtml = `
+                    <div class="mt-2 p-2 border rounded ${notifClass} flex items-center justify-between text-sm animate-fade-in">
+                        <div class="flex items-center">
+                            <span class="mr-2 font-bold">${icon}</span>
+                            <span>${notification.message}</span>
+                        </div>
+                        <button onclick="dismissNotification('${step.name}')" class="ml-2 text-gray-500 hover:text-gray-700">&times;</button>
+                    </div>
+                `;
+            }
+
+            let borderClass = 'bg-gray-50';
+            if (hasError) {
+                borderClass = 'bg-red-50 border-red-200';
+            } else if (isCompleted) {
+                borderClass = 'bg-green-50 border-green-200';
+            }
+
             return `
-                <div class="flex items-center justify-between p-4 border rounded-lg ${isCompleted ? 'bg-green-50 border-green-200' : 'bg-gray-50'}">
-                    <div class="flex items-center space-x-4">
-                        <span class="text-2xl">${stepInfo.icon}</span>
-                        <div>
-                            <div class="flex items-center space-x-2">
-                                <span class="font-medium">${idx + 1}. ${stepInfo.label}</span>
-                                ${statusBadge}
+                <div class="step-container" data-step="${step.name}">
+                    <div class="flex items-center justify-between p-4 border rounded-lg ${borderClass}">
+                        <div class="flex items-center space-x-4">
+                            <span class="text-2xl">${stepInfo.icon}</span>
+                            <div>
+                                <div class="flex items-center space-x-2">
+                                    <span class="font-medium">${idx + 1}. ${stepInfo.label}</span>
+                                    ${statusBadge}
+                                </div>
+                                ${resultInfo}
                             </div>
-                            ${resultInfo}
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            ${hasData ? `<button onclick="previewStep('${step.name}')" class="px-3 py-1 text-sm border rounded hover:bg-gray-100">Preview</button>` : ''}
+                            <button onclick="runStep('${step.name}')" class="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600">Run</button>
+                            <button onclick="runFromStep('${step.name}')" class="px-3 py-1 text-sm bg-indigo-500 text-white rounded hover:bg-indigo-600">Run From Here</button>
+                            ${hasData ? `<button onclick="clearStep('${step.name}')" class="px-3 py-1 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50">Clear</button>` : ''}
                         </div>
                     </div>
-                    <div class="flex items-center space-x-2">
-                        ${hasData ? `<button onclick="previewStep('${step.name}')" class="px-3 py-1 text-sm border rounded hover:bg-gray-100">Preview</button>` : ''}
-                        <button onclick="runStep('${step.name}')" class="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600">Run</button>
-                        <button onclick="runFromStep('${step.name}')" class="px-3 py-1 text-sm bg-indigo-500 text-white rounded hover:bg-indigo-600">Run From Here</button>
-                        ${hasData ? `<button onclick="clearStep('${step.name}')" class="px-3 py-1 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50">Clear</button>` : ''}
-                    </div>
+                    ${notificationHtml}
                 </div>
             `;
         }).join('');
+    }
+
+    function showStepNotification(stepName, type, message) {
+        stepNotifications[stepName] = { type, message, time: Date.now() };
+
+        // Auto-dismiss success notifications after 10 seconds
+        if (type === 'success') {
+            setTimeout(() => {
+                if (stepNotifications[stepName]?.time === stepNotifications[stepName]?.time) {
+                    dismissNotification(stepName);
+                }
+            }, 10000);
+        }
+    }
+
+    function dismissNotification(stepName) {
+        delete stepNotifications[stepName];
+        // Re-render to remove notification
+        if (currentSessionId) {
+            loadSession(currentSessionId);
+        }
     }
 
     async function loadSessions() {
@@ -280,7 +372,7 @@
         }
     }
 
-    async function loadSession(sessionId) {
+    async function loadSession(sessionId, detectChanges = false) {
         if (!sessionId) return;
 
         try {
@@ -300,7 +392,7 @@
                 if (status.config.clustering_method) document.getElementById('config-method').value = status.config.clustering_method;
             }
 
-            renderSteps(status);
+            renderSteps(status, detectChanges);
         } catch (e) {
             console.error('Error loading session:', e);
         }
@@ -449,17 +541,21 @@
                     });
                 }
 
+                // Always refresh session to detect state changes
+                if (currentSessionId) {
+                    loadSession(currentSessionId, true);
+                }
+
                 if (!status.running) {
                     clearInterval(pollInterval);
                     pollInterval = null;
 
                     if (status.error) {
                         addLog('Step failed: ' + status.error, 'error');
-                    }
-
-                    // Refresh session status
-                    if (currentSessionId) {
-                        loadSession(currentSessionId);
+                        // Show error notification for the current step
+                        if (status.current_step) {
+                            showStepNotification(status.current_step, 'error', status.error);
+                        }
                     }
                 }
             } catch (e) {
