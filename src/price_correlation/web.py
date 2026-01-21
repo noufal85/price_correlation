@@ -427,6 +427,15 @@ def get_clusters():
             ORDER BY cluster_id, ticker
         """, (date_filter, method))
         rows = cursor.fetchall()
+
+        # Get insights from analysis_runs
+        cursor.execute("""
+            SELECT silhouette_score, execution_time_seconds, created_at
+            FROM price_correlation.analysis_runs
+            WHERE analysis_date = %s AND clustering_method = %s
+        """, (date_filter, method))
+        run_info = cursor.fetchone()
+
         cursor.close()
         conn.close()
 
@@ -437,6 +446,20 @@ def get_clusters():
                 clusters[cluster_id] = []
             clusters[cluster_id].append(ticker)
 
+        # Calculate cluster statistics
+        cluster_sizes = [len(members) for cid, members in clusters.items() if cid != -1]
+        avg_size = sum(cluster_sizes) / len(cluster_sizes) if cluster_sizes else 0
+        insights = {
+            "silhouette_score": round(run_info[0], 4) if run_info and run_info[0] else None,
+            "execution_time": round(run_info[1], 1) if run_info and run_info[1] else None,
+            "created_at": run_info[2].isoformat() if run_info and run_info[2] else None,
+            "min_cluster_size": min(cluster_sizes) if cluster_sizes else 0,
+            "max_cluster_size": max(cluster_sizes) if cluster_sizes else 0,
+            "avg_cluster_size": round(avg_size, 1),
+            "median_cluster_size": sorted(cluster_sizes)[len(cluster_sizes)//2] if cluster_sizes else 0,
+            "std_cluster_size": round((sum((s - avg_size)**2 for s in cluster_sizes) / len(cluster_sizes))**0.5, 1) if len(cluster_sizes) > 1 else 0,
+        }
+
         return jsonify({
             "analysis_date": str(date_filter),
             "clustering_method": method,
@@ -445,6 +468,7 @@ def get_clusters():
             "total_stocks": len(rows),
             "n_clusters": len([k for k in clusters if k != -1]),
             "n_noise": len(clusters.get(-1, [])),
+            "insights": insights,
         })
     except Exception as e:
         logger.error(f"Error fetching clusters: {e}")
@@ -759,6 +783,24 @@ def fetch_profiles_batch(tickers):
             profiles[ticker] = profile
 
     return profiles
+
+
+@app.route("/api/profiles/batch")
+def get_profiles_batch():
+    """Get profiles for multiple tickers."""
+    tickers_param = request.args.get("tickers", "")
+    if not tickers_param:
+        return jsonify({}), 200
+
+    tickers = [t.strip() for t in tickers_param.split(",") if t.strip()]
+    if not tickers:
+        return jsonify({}), 200
+
+    # Limit to 100 tickers max
+    tickers = tickers[:100]
+
+    profiles = fetch_profiles_batch(tickers)
+    return jsonify(profiles)
 
 
 @app.route("/api/cluster/<int:cluster_id>/stocks")

@@ -17,6 +17,40 @@
         </div>
     </div>
 
+    <!-- Clustering Insights -->
+    <div id="insights-panel" class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg shadow-md p-6 border border-blue-100">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">Clustering Insights</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div class="text-center">
+                <div class="text-2xl font-bold text-blue-600" id="insight-silhouette">-</div>
+                <div class="text-xs text-gray-500">Silhouette Score</div>
+            </div>
+            <div class="text-center">
+                <div class="text-2xl font-bold text-green-600" id="insight-clusters">-</div>
+                <div class="text-xs text-gray-500">Clusters Found</div>
+            </div>
+            <div class="text-center">
+                <div class="text-2xl font-bold text-purple-600" id="insight-avg-size">-</div>
+                <div class="text-xs text-gray-500">Avg Size</div>
+            </div>
+            <div class="text-center">
+                <div class="text-2xl font-bold text-orange-600" id="insight-min-max">-</div>
+                <div class="text-xs text-gray-500">Min-Max Size</div>
+            </div>
+            <div class="text-center">
+                <div class="text-2xl font-bold text-gray-600" id="insight-noise">-</div>
+                <div class="text-xs text-gray-500">Noise Points</div>
+            </div>
+            <div class="text-center">
+                <div class="text-2xl font-bold text-indigo-600" id="insight-time">-</div>
+                <div class="text-xs text-gray-500">Exec Time</div>
+            </div>
+        </div>
+        <div id="insight-interpretation" class="mt-4 p-3 bg-white rounded border text-sm text-gray-700">
+            <span class="font-medium">Interpretation:</span> <span id="insight-text">Loading...</span>
+        </div>
+    </div>
+
     <!-- Stats -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div class="bg-white rounded-lg shadow-md p-6">
@@ -52,6 +86,49 @@
             <div class="text-gray-400 text-center py-8">Loading clusters...</div>
         </div>
     </div>
+
+    <!-- Cluster Detail Modal -->
+    <div id="cluster-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl w-11/12 max-w-2xl max-h-[85vh] overflow-hidden">
+            <div class="flex justify-between items-center border-b px-6 py-4 bg-blue-50">
+                <h3 id="cluster-modal-title" class="text-lg font-semibold text-gray-900">Cluster Details</h3>
+                <button id="close-cluster-modal" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            </div>
+            <div class="p-6 overflow-y-auto max-h-[70vh]">
+                <!-- Cluster Stats -->
+                <div class="grid grid-cols-3 gap-4 mb-6">
+                    <div class="text-center p-3 bg-gray-50 rounded">
+                        <div class="text-2xl font-bold text-blue-600" id="cluster-modal-size">-</div>
+                        <div class="text-xs text-gray-500">Stocks</div>
+                    </div>
+                    <div class="text-center p-3 bg-gray-50 rounded">
+                        <div class="text-2xl font-bold text-green-600" id="cluster-modal-pct">-</div>
+                        <div class="text-xs text-gray-500">% of Total</div>
+                    </div>
+                    <div class="text-center p-3 bg-gray-50 rounded">
+                        <div class="text-2xl font-bold text-purple-600" id="cluster-modal-rank">-</div>
+                        <div class="text-xs text-gray-500">Size Rank</div>
+                    </div>
+                </div>
+
+                <!-- Sector Distribution -->
+                <div class="mb-6">
+                    <h4 class="text-sm font-semibold text-gray-700 mb-2">Sector Distribution</h4>
+                    <div id="cluster-modal-sectors" class="space-y-1">
+                        <div class="text-gray-400 text-sm">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Members List -->
+                <div>
+                    <h4 class="text-sm font-semibold text-gray-700 mb-2">Members</h4>
+                    <div id="cluster-modal-members" class="flex flex-wrap gap-1 max-h-48 overflow-y-auto">
+                        <div class="text-gray-400 text-sm">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -59,6 +136,144 @@
 <script>
     let clusterChart = null;
     let currentMethod = null;
+    let currentClusters = {};
+    let totalStocks = 0;
+
+    function updateInsightsPanel(data) {
+        const insights = data.insights || {};
+
+        // Update insight values
+        document.getElementById('insight-silhouette').textContent =
+            insights.silhouette_score != null ? insights.silhouette_score.toFixed(3) : '-';
+        document.getElementById('insight-clusters').textContent = data.n_clusters || '-';
+        document.getElementById('insight-avg-size').textContent =
+            insights.avg_cluster_size != null ? insights.avg_cluster_size.toFixed(1) : '-';
+        document.getElementById('insight-min-max').textContent =
+            insights.min_cluster_size != null && insights.max_cluster_size != null
+                ? `${insights.min_cluster_size}-${insights.max_cluster_size}` : '-';
+        document.getElementById('insight-noise').textContent = data.n_noise || '0';
+        document.getElementById('insight-time').textContent =
+            insights.execution_time != null ? `${insights.execution_time}s` : '-';
+
+        // Generate interpretation text
+        let interpretation = '';
+        const silhouette = insights.silhouette_score;
+        if (silhouette != null) {
+            if (silhouette >= 0.7) {
+                interpretation = 'Excellent clustering structure. Clusters are well-separated and cohesive.';
+            } else if (silhouette >= 0.5) {
+                interpretation = 'Good clustering structure. Reasonable separation between clusters.';
+            } else if (silhouette >= 0.25) {
+                interpretation = 'Moderate clustering structure. Some overlap between clusters may exist.';
+            } else {
+                interpretation = 'Weak clustering structure. Clusters have significant overlap.';
+            }
+
+            const noisePct = data.n_noise && data.total_stocks
+                ? ((data.n_noise / data.total_stocks) * 100).toFixed(1)
+                : 0;
+            if (noisePct > 20) {
+                interpretation += ` ${noisePct}% of stocks classified as noise (outliers).`;
+            }
+        } else {
+            interpretation = 'No silhouette score available for this clustering method.';
+        }
+        document.getElementById('insight-text').textContent = interpretation;
+    }
+
+    async function openClusterModal(clusterId, members) {
+        const modal = document.getElementById('cluster-modal');
+        const isNoise = clusterId === '-1' || clusterId === -1;
+
+        // Update title
+        document.getElementById('cluster-modal-title').textContent =
+            isNoise ? 'Noise Points (Outliers)' : `Cluster ${clusterId} Details`;
+
+        // Update stats
+        document.getElementById('cluster-modal-size').textContent = members.length;
+        document.getElementById('cluster-modal-pct').textContent =
+            totalStocks > 0 ? ((members.length / totalStocks) * 100).toFixed(1) + '%' : '-';
+
+        // Calculate rank
+        const sortedSizes = Object.entries(currentClusters)
+            .filter(([id]) => id !== '-1')
+            .map(([, m]) => m.length)
+            .sort((a, b) => b - a);
+        const rank = sortedSizes.indexOf(members.length) + 1;
+        document.getElementById('cluster-modal-rank').textContent =
+            isNoise ? 'N/A' : (rank > 0 ? `#${rank}` : '-');
+
+        // Update members list
+        const membersDiv = document.getElementById('cluster-modal-members');
+        membersDiv.innerHTML = members.map(ticker => `
+            <a href="/stock/${ticker}" target="_blank"
+               class="inline-block px-2 py-1 text-xs font-mono bg-gray-100 hover:bg-blue-100 rounded text-gray-700 hover:text-blue-700">
+                ${ticker}
+            </a>
+        `).join('');
+
+        // Show modal
+        modal.classList.remove('hidden');
+
+        // Fetch sector distribution
+        const sectorsDiv = document.getElementById('cluster-modal-sectors');
+        sectorsDiv.innerHTML = '<div class="text-gray-400 text-sm">Loading sectors...</div>';
+
+        try {
+            // Fetch profiles for sector info (limit to first 50 for performance)
+            const tickersToFetch = members.slice(0, 50);
+            const profileRes = await fetch(`/api/profiles/batch?tickers=${tickersToFetch.join(',')}`);
+
+            if (profileRes.ok) {
+                const profiles = await profileRes.json();
+
+                // Count sectors
+                const sectorCounts = {};
+                for (const ticker of tickersToFetch) {
+                    const profile = profiles[ticker];
+                    const sector = profile?.sector || 'Unknown';
+                    sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
+                }
+
+                // Sort by count descending
+                const sortedSectors = Object.entries(sectorCounts)
+                    .sort((a, b) => b[1] - a[1]);
+
+                const maxCount = sortedSectors[0]?.[1] || 1;
+
+                sectorsDiv.innerHTML = sortedSectors.map(([sector, count]) => {
+                    const pct = ((count / tickersToFetch.length) * 100).toFixed(0);
+                    const barWidth = (count / maxCount) * 100;
+                    return `
+                        <div class="flex items-center text-sm">
+                            <div class="w-28 truncate text-gray-600">${sector}</div>
+                            <div class="flex-1 h-4 bg-gray-100 rounded mx-2 overflow-hidden">
+                                <div class="h-full bg-blue-500 rounded" style="width: ${barWidth}%"></div>
+                            </div>
+                            <div class="w-16 text-right text-gray-500">${count} (${pct}%)</div>
+                        </div>
+                    `;
+                }).join('');
+
+                if (members.length > 50) {
+                    sectorsDiv.innerHTML += `
+                        <div class="text-xs text-gray-400 mt-2">
+                            Showing distribution for first 50 of ${members.length} stocks
+                        </div>
+                    `;
+                }
+            } else {
+                sectorsDiv.innerHTML = '<div class="text-gray-400 text-sm">Could not load sector data</div>';
+            }
+        } catch (e) {
+            console.error('Error loading sectors:', e);
+            sectorsDiv.innerHTML = '<div class="text-gray-400 text-sm">Error loading sectors</div>';
+        }
+    }
+
+    function closeClusterModal() {
+        document.getElementById('cluster-modal').classList.add('hidden');
+    }
 
     async function loadClusters(method = null) {
         try {
@@ -86,6 +301,13 @@
             document.getElementById('stat-clusters').textContent = data.n_clusters;
             document.getElementById('stat-noise').textContent = data.n_noise;
 
+            // Store for modal use
+            currentClusters = data.clusters;
+            totalStocks = data.total_stocks;
+
+            // Update insights panel
+            updateInsightsPanel(data);
+
             // Calculate average cluster size (excluding noise)
             const clusters = data.clusters;
             const clusterSizes = Object.entries(clusters)
@@ -105,11 +327,18 @@
                 const isNoise = clusterId === '-1';
                 const headerClass = isNoise ? 'bg-gray-100 text-gray-600' : 'bg-blue-50 text-blue-800';
                 const label = isNoise ? 'Noise' : `Cluster ${clusterId}`;
+                const membersJson = JSON.stringify(members).replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
                 return `
                     <div class="border rounded-lg overflow-hidden">
-                        <div class="${headerClass} px-4 py-2 font-medium flex justify-between items-center">
-                            <span>${label}</span>
+                        <div class="${headerClass} px-4 py-2 font-medium flex justify-between items-center cursor-pointer hover:opacity-80 transition-opacity"
+                             onclick='openClusterModal("${clusterId}", ${JSON.stringify(members)})'>
+                            <span class="flex items-center">
+                                ${label}
+                                <svg class="w-4 h-4 ml-1 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                            </span>
                             <span class="text-sm">${members.length} stocks</span>
                         </div>
                         <div class="p-4 max-h-48 overflow-y-auto">
@@ -176,6 +405,17 @@
     // Handle method change
     document.getElementById('method-select').addEventListener('change', function() {
         loadClusters(this.value);
+    });
+
+    // Modal close handlers
+    document.getElementById('close-cluster-modal').addEventListener('click', closeClusterModal);
+    document.getElementById('cluster-modal').addEventListener('click', function(e) {
+        if (e.target === this) closeClusterModal();
+    });
+
+    // Escape key to close modal
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeClusterModal();
     });
 
     loadClusters();
