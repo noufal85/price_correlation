@@ -298,6 +298,27 @@ deactivate
 
 ---
 
+## Web Server
+
+### Auto-Restart Rule
+- **ALWAYS restart the web server** after making changes to:
+  - Python files (*.py) in `src/price_correlation/`
+  - HTML templates in `src/price_correlation/templates/`
+  - Any backend code changes
+- Use the restart command below after committing changes
+
+### Restart Command
+```bash
+# Find and kill existing web server, then restart
+pkill -f "python.*web" || true; cd /home/noufal/price_correlation && source venv/bin/activate && python -c "from price_correlation.web import app; app.run(host='0.0.0.0', port=5000, debug=True)" &
+```
+
+### Web Server URL
+- Local: http://localhost:5000
+- Network: http://0.0.0.0:5000
+
+---
+
 ## Reminders for Claude
 
 1. **Tasks**: Update TodoWrite status in real-time
@@ -305,3 +326,4 @@ deactivate
 3. **Tests**: Real data only, combine functions, separate package
 4. **Design**: Diagrams and pseudo-code, minimal actual code
 5. **Focus**: Keep implementations simple, avoid over-engineering
+6. **Web Server**: ALWAYS restart after Python/template changes
