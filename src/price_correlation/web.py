@@ -672,8 +672,9 @@ def get_stock_cluster_history(ticker):
 
 @app.route("/api/stock/<ticker>/correlations")
 def get_stock_correlations(ticker):
-    """Get correlations for a specific stock."""
+    """Get correlations for a specific stock with optional profile data."""
     limit = int(request.args.get("limit", 20))
+    include_profiles = request.args.get("include_profiles", "false").lower() == "true"
 
     conn = get_db_connection()
     if not conn:
@@ -699,12 +700,23 @@ def get_stock_correlations(ticker):
         conn.close()
 
         pairs = []
+        tickers_to_fetch = []
         for row in rows:
             other = row[1] if row[0] == ticker.upper() else row[0]
             pairs.append({
                 "ticker": other,
                 "correlation": round(row[2], 4),
             })
+            tickers_to_fetch.append(other)
+
+        # Fetch profiles in parallel if requested
+        if include_profiles and tickers_to_fetch:
+            profiles = fetch_profiles_batch(tickers_to_fetch)
+            for pair in pairs:
+                profile = profiles.get(pair["ticker"], {})
+                pair["companyName"] = profile.get("companyName", "")
+                pair["sector"] = profile.get("sector", "")
+                pair["industry"] = profile.get("industry", "")
 
         return jsonify({
             "ticker": ticker.upper(),
@@ -714,6 +726,39 @@ def get_stock_correlations(ticker):
     except Exception as e:
         logger.error(f"Error fetching stock correlations: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+def fetch_profiles_batch(tickers):
+    """Fetch profiles for multiple tickers in parallel."""
+    import concurrent.futures
+    import requests
+
+    api_key = get_fmp_api_key()
+    if not api_key:
+        return {}
+
+    profiles = {}
+
+    def fetch_one(ticker):
+        try:
+            url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}"
+            response = requests.get(url, params={"apikey": api_key}, timeout=5)
+            if response.ok:
+                data = response.json()
+                if data and len(data) > 0:
+                    return ticker, data[0]
+        except Exception as e:
+            logger.debug(f"Profile fetch failed for {ticker}: {e}")
+        return ticker, {}
+
+    # Use thread pool to fetch in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = [executor.submit(fetch_one, t) for t in tickers]
+        for future in concurrent.futures.as_completed(futures):
+            ticker, profile = future.result()
+            profiles[ticker] = profile
+
+    return profiles
 
 
 @app.route("/api/cluster/<int:cluster_id>/stocks")
