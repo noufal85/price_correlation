@@ -65,30 +65,34 @@
                 <input type="number" id="config-period" value="18" class="w-full border rounded px-3 py-2">
             </div>
             <div class="md:col-span-2">
-                <label class="block text-sm font-medium text-gray-700 mb-1">Clustering Methods (select multiple)</label>
-                <div class="flex flex-wrap gap-3 mt-1">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Clustering Method</label>
+                <div class="flex flex-wrap gap-4 mt-1">
                     <label class="inline-flex items-center">
-                        <input type="checkbox" id="method-hierarchical" value="hierarchical" checked class="clustering-method rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <input type="radio" name="clustering-method" id="method-hierarchical" value="hierarchical" checked class="clustering-method border-gray-300 text-blue-600 focus:ring-blue-500">
                         <span class="ml-2 text-sm text-gray-700">Hierarchical</span>
                     </label>
                     <label class="inline-flex items-center">
-                        <input type="checkbox" id="method-hdbscan" value="hdbscan" class="clustering-method rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <input type="radio" name="clustering-method" id="method-hdbscan" value="hdbscan" class="clustering-method border-gray-300 text-blue-600 focus:ring-blue-500">
                         <span class="ml-2 text-sm text-gray-700">HDBSCAN</span>
                     </label>
                     <label class="inline-flex items-center">
-                        <input type="checkbox" id="method-kmeans-pca" value="kmeans_pca" class="clustering-method rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <input type="radio" name="clustering-method" id="method-kmeans-pca" value="kmeans_pca" class="clustering-method border-gray-300 text-blue-600 focus:ring-blue-500">
                         <span class="ml-2 text-sm text-gray-700">K-Means PCA</span>
                     </label>
                     <label class="inline-flex items-center">
-                        <input type="checkbox" id="method-louvain" value="louvain" class="clustering-method rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <input type="radio" name="clustering-method" id="method-louvain" value="louvain" class="clustering-method border-gray-300 text-blue-600 focus:ring-blue-500">
                         <span class="ml-2 text-sm text-gray-700">Louvain</span>
                     </label>
                     <label class="inline-flex items-center">
-                        <input type="checkbox" id="method-dbscan" value="dbscan" class="clustering-method rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <input type="radio" name="clustering-method" id="method-dbscan" value="dbscan" class="clustering-method border-gray-300 text-blue-600 focus:ring-blue-500">
                         <span class="ml-2 text-sm text-gray-700">DBSCAN</span>
                     </label>
+                    <label class="inline-flex items-center">
+                        <input type="radio" name="clustering-method" id="method-all" value="all" class="clustering-method border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="ml-2 text-sm text-gray-700 font-medium">Run All Methods</span>
+                    </label>
                 </div>
-                <p class="text-xs text-gray-500 mt-1">Select one or more methods to compare clustering results</p>
+                <p class="text-xs text-gray-500 mt-1">Select a clustering algorithm or run all methods to compare results</p>
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 mb-1">Min History %</label>
@@ -188,14 +192,16 @@
     function getConfig() {
         const dataSource = document.getElementById('config-source').value;
 
-        // Collect selected clustering methods
-        const selectedMethods = [];
-        document.querySelectorAll('.clustering-method:checked').forEach(cb => {
-            selectedMethods.push(cb.value);
-        });
-        // Default to hierarchical if nothing selected
-        if (selectedMethods.length === 0) {
-            selectedMethods.push('hierarchical');
+        // Get selected clustering method (radio button)
+        const selectedRadio = document.querySelector('input[name="clustering-method"]:checked');
+        const selectedValue = selectedRadio ? selectedRadio.value : 'hierarchical';
+
+        // If "all" is selected, include all methods
+        let selectedMethods;
+        if (selectedValue === 'all') {
+            selectedMethods = ['hierarchical', 'hdbscan', 'kmeans_pca', 'louvain', 'dbscan'];
+        } else {
+            selectedMethods = [selectedValue];
         }
 
         const config = {
@@ -203,7 +209,7 @@
             max_stocks: parseInt(document.getElementById('config-max-stocks').value) || 0,
             period_months: parseInt(document.getElementById('config-period').value) || 18,
             clustering_method: selectedMethods[0],  // Legacy: first selected method
-            clustering_methods: selectedMethods,     // New: all selected methods
+            clustering_methods: selectedMethods,     // All methods to run
             min_history_pct: (parseInt(document.getElementById('config-min-history').value) || 90) / 100,
             correlation_threshold: parseFloat(document.getElementById('config-corr-threshold').value) || 0.7,
             filters: {},
