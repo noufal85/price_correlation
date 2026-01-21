@@ -10,14 +10,13 @@ services:
       - ENABLE_DB_EXPORT=${ENABLE_DB_EXPORT:-true}
       - WEB_HOST=0.0.0.0
       - WEB_PORT=5000
-    ports:
-      - "5000:5000"
+    # ports:
+    #   - "5000:5000"
     volumes:
       - ./output:/app/output
       - ./config:/app/config:ro
     # Use host network to access Redis and TimescaleDB on host machine
-    # Comment out 'ports' above if using network_mode: host
-    # network_mode: host
+    network_mode: host
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/api/pipeline/status"]
