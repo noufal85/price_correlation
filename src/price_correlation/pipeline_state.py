@@ -166,19 +166,35 @@ class PipelineStateManager:
             self._state = self.load_state()
         return self._state
 
+    def _state_file_path(self) -> Path:
+        """Get file path for state storage."""
+        return self._output_dir / f".pipeline_state_{self.session_id}.json"
+
     def load_state(self) -> PipelineState:
-        """Load state from Redis or create new."""
+        """Load state from Redis or file, or create new."""
         cache = get_cache()
 
+        # Try Redis first
         if cache and cache.is_connected:
             data = cache.get(self._state_key())
             if data:
                 try:
                     state_dict = json.loads(data.decode())
-                    logger.info(f"Loaded pipeline state for session {self.session_id}")
+                    logger.info(f"Loaded pipeline state for session {self.session_id} from Redis")
                     return PipelineState.from_dict(state_dict)
                 except Exception as e:
-                    logger.warning(f"Failed to load state: {e}")
+                    logger.warning(f"Failed to load state from Redis: {e}")
+
+        # Try file fallback
+        state_file = self._state_file_path()
+        if state_file.exists():
+            try:
+                with open(state_file, "r") as f:
+                    state_dict = json.load(f)
+                logger.info(f"Loaded pipeline state for session {self.session_id} from file")
+                return PipelineState.from_dict(state_dict)
+            except Exception as e:
+                logger.warning(f"Failed to load state from file: {e}")
 
         # Create new state
         return PipelineState(
@@ -188,15 +204,27 @@ class PipelineStateManager:
         )
 
     def save_state(self):
-        """Save state to Redis."""
+        """Save state to Redis and file."""
+        state_data = self.state.to_dict()
+
+        # Save to Redis
         cache = get_cache()
         if cache and cache.is_connected:
             try:
-                data = json.dumps(self.state.to_dict())
+                data = json.dumps(state_data)
                 cache.set(self._state_key(), data.encode(), TTL_INTERMEDIATE)
-                logger.debug(f"Saved pipeline state for session {self.session_id}")
+                logger.debug(f"Saved pipeline state for session {self.session_id} to Redis")
             except Exception as e:
-                logger.warning(f"Failed to save state: {e}")
+                logger.warning(f"Failed to save state to Redis: {e}")
+
+        # Always save to file as backup
+        try:
+            state_file = self._state_file_path()
+            with open(state_file, "w") as f:
+                json.dump(state_data, f)
+            logger.debug(f"Saved pipeline state for session {self.session_id} to file")
+        except Exception as e:
+            logger.warning(f"Failed to save state to file: {e}")
 
     def set_config(self, config: dict):
         """Set pipeline configuration."""
@@ -333,8 +361,14 @@ class PipelineStateManager:
         self._state = None
         logger.info(f"Cleared all state for session {self.session_id}")
 
+    def refresh_state(self):
+        """Force reload state from storage."""
+        self._state = self.load_state()
+
     def get_status(self) -> dict:
         """Get current pipeline status for display."""
+        # Always reload state to get latest updates
+        self.refresh_state()
         state = self.state
         return {
             "session_id": self.session_id,
