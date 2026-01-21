@@ -309,9 +309,14 @@ deactivate
 
 ### Restart Command
 ```bash
-# Find and kill existing web server, then restart
-pkill -f "python.*web" || true; cd /home/noufal/price_correlation && source venv/bin/activate && python -c "from price_correlation.web import app; app.run(host='0.0.0.0', port=5000, debug=True)" &
+# Kill existing web server and restart (adjust for your environment)
+pkill -f "python.*5000" || true
+# Then restart using your preferred method (cli.py option 'w' or direct run)
 ```
+
+### Note for Claude
+- After making changes that affect the web UI, remind user to restart the web server
+- Cannot auto-restart as the Python environment varies by setup
 
 ### Web Server URL
 - Local: http://localhost:5000
