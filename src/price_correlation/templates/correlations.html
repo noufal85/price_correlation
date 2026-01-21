@@ -122,6 +122,91 @@
         </div>
     </div>
 
+    <!-- Stock Detail Modal -->
+    <div id="stock-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center">
+        <div class="bg-white rounded-lg shadow-xl w-11/12 max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div class="flex justify-between items-center border-b px-6 py-4 bg-gray-50">
+                <div class="flex items-center space-x-4">
+                    <h3 id="modal-ticker" class="text-xl font-bold text-gray-900">-</h3>
+                    <span id="modal-company" class="text-gray-500">-</span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="text-right">
+                        <div id="modal-price" class="text-xl font-bold">-</div>
+                        <div id="modal-change" class="text-sm">-</div>
+                    </div>
+                    <button id="close-stock-modal" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                </div>
+            </div>
+            <div class="p-6 overflow-y-auto flex-1">
+                <!-- Company Info -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-gray-50 rounded p-3">
+                        <div class="text-xs text-gray-500">Sector</div>
+                        <div id="modal-sector" class="font-medium">-</div>
+                    </div>
+                    <div class="bg-gray-50 rounded p-3">
+                        <div class="text-xs text-gray-500">Industry</div>
+                        <div id="modal-industry" class="font-medium">-</div>
+                    </div>
+                    <div class="bg-gray-50 rounded p-3">
+                        <div class="text-xs text-gray-500">Market Cap</div>
+                        <div id="modal-marketcap" class="font-medium">-</div>
+                    </div>
+                    <div class="bg-gray-50 rounded p-3">
+                        <div class="text-xs text-gray-500">Exchange</div>
+                        <div id="modal-exchange" class="font-medium">-</div>
+                    </div>
+                </div>
+
+                <!-- Two column layout -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <!-- Price Chart -->
+                    <div class="bg-white border rounded-lg p-4">
+                        <h4 class="text-sm font-semibold text-gray-700 mb-3">Price History (30 Days)</h4>
+                        <div class="h-48">
+                            <canvas id="modal-price-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Cluster Info -->
+                    <div class="bg-white border rounded-lg p-4">
+                        <h4 class="text-sm font-semibold text-gray-700 mb-3">Cluster Information</h4>
+                        <div id="modal-cluster-info" class="text-gray-400">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Correlations and Peers -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <div class="bg-white border rounded-lg p-4">
+                        <h4 class="text-sm font-semibold text-gray-700 mb-3">Most Correlated Stocks</h4>
+                        <div id="modal-correlations" class="space-y-1 max-h-40 overflow-y-auto text-gray-400">Loading...</div>
+                    </div>
+                    <div class="bg-white border rounded-lg p-4">
+                        <h4 class="text-sm font-semibold text-gray-700 mb-3">Similar Companies (FMP)</h4>
+                        <div id="modal-peers" class="space-y-1 max-h-40 overflow-y-auto text-gray-400">Loading...</div>
+                    </div>
+                </div>
+
+                <!-- Financial Ratios -->
+                <div class="bg-white border rounded-lg p-4 mb-6">
+                    <h4 class="text-sm font-semibold text-gray-700 mb-3">Key Financial Ratios</h4>
+                    <div id="modal-ratios" class="grid grid-cols-3 md:grid-cols-6 gap-3 text-gray-400">Loading...</div>
+                </div>
+
+                <!-- News -->
+                <div class="bg-white border rounded-lg p-4">
+                    <h4 class="text-sm font-semibold text-gray-700 mb-3">Recent News</h4>
+                    <div id="modal-news" class="space-y-3 max-h-48 overflow-y-auto text-gray-400">Loading...</div>
+                </div>
+            </div>
+            <div class="border-t px-6 py-3 bg-gray-50 flex justify-between items-center">
+                <a id="modal-full-page-link" href="#" class="text-blue-600 hover:underline text-sm">Open full page</a>
+                <button onclick="closeStockModal()" class="btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Comparison Chart Modal -->
     <div id="compare-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center">
         <div class="bg-white rounded-lg shadow-xl w-11/12 max-w-4xl max-h-[90vh] overflow-hidden">
@@ -181,6 +266,17 @@
 <script>
     let distributionChart = null;
     let currentLimit = 50;
+    let modalPriceChart = null;
+
+    // Format large numbers
+    function formatNumber(num) {
+        if (!num) return '-';
+        if (num >= 1e12) return (num / 1e12).toFixed(2) + 'T';
+        if (num >= 1e9) return (num / 1e9).toFixed(2) + 'B';
+        if (num >= 1e6) return (num / 1e6).toFixed(2) + 'M';
+        if (num >= 1e3) return (num / 1e3).toFixed(2) + 'K';
+        return num.toFixed(2);
+    }
 
     function getStrengthIndicator(corr) {
         if (corr >= 0.95) return { text: 'Very Strong', class: 'bg-green-600' };
@@ -212,10 +308,10 @@
                         <tr>
                             <td class="py-3 text-sm text-gray-400">${i + 1}</td>
                             <td class="py-3">
-                                <a href="/stock/${p.ticker_a}" class="text-blue-600 hover:underline font-medium">${p.ticker_a}</a>
+                                <button onclick="openStockModal('${p.ticker_a}', '${p.ticker_b}')" class="text-blue-600 hover:underline font-medium">${p.ticker_a}</button>
                             </td>
                             <td class="py-3">
-                                <a href="/stock/${p.ticker_b}" class="text-blue-600 hover:underline font-medium">${p.ticker_b}</a>
+                                <button onclick="openStockModal('${p.ticker_b}', '${p.ticker_a}')" class="text-blue-600 hover:underline font-medium">${p.ticker_b}</button>
                             </td>
                             <td class="py-3 text-right">
                                 <span class="font-mono font-semibold">${p.correlation.toFixed(4)}</span>
@@ -229,11 +325,9 @@
                             </td>
                             <td class="py-3 text-center">
                                 <button onclick="openCompare('${p.ticker_a}', '${p.ticker_b}', ${p.correlation})"
-                                        class="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600 mr-2">
+                                        class="text-xs bg-indigo-500 text-white px-2 py-1 rounded hover:bg-indigo-600">
                                     Compare
                                 </button>
-                                <a href="/stock/${p.ticker_a}" class="text-xs text-blue-600 hover:underline mr-1">${p.ticker_a}</a>
-                                <a href="/stock/${p.ticker_b}" class="text-xs text-blue-600 hover:underline">${p.ticker_b}</a>
                             </td>
                         </tr>
                     `;
@@ -400,7 +494,7 @@
                 <tr class="hover:bg-gray-50">
                     <td class="py-3 text-sm text-gray-400">${i + 1}</td>
                     <td class="py-3">
-                        <a href="/stock/${c.ticker}" class="text-blue-600 hover:underline font-medium">${c.ticker}</a>
+                        <button onclick="openStockModal('${c.ticker}', '${currentSearchTicker}')" class="text-blue-600 hover:underline font-medium">${c.ticker}</button>
                     </td>
                     <td class="py-3 text-right">
                         <span class="font-mono font-semibold ${c.correlation >= 0 ? 'text-green-600' : 'text-red-600'}">${c.correlation.toFixed(4)}</span>
@@ -593,10 +687,279 @@
         }
     }
 
+    // ==========================================
+    // Stock Detail Modal Functions
+    // ==========================================
+
+    async function openStockModal(ticker, pairedTicker = null) {
+        const modal = document.getElementById('stock-modal');
+        modal.classList.remove('hidden');
+
+        // Reset all fields
+        document.getElementById('modal-ticker').textContent = ticker;
+        document.getElementById('modal-company').textContent = 'Loading...';
+        document.getElementById('modal-price').textContent = '-';
+        document.getElementById('modal-change').textContent = '-';
+        document.getElementById('modal-sector').textContent = '-';
+        document.getElementById('modal-industry').textContent = '-';
+        document.getElementById('modal-marketcap').textContent = '-';
+        document.getElementById('modal-exchange').textContent = '-';
+        document.getElementById('modal-cluster-info').innerHTML = '<span class="text-gray-400">Loading...</span>';
+        document.getElementById('modal-correlations').innerHTML = '<span class="text-gray-400">Loading...</span>';
+        document.getElementById('modal-peers').innerHTML = '<span class="text-gray-400">Loading...</span>';
+        document.getElementById('modal-ratios').innerHTML = '<span class="text-gray-400">Loading...</span>';
+        document.getElementById('modal-news').innerHTML = '<span class="text-gray-400">Loading...</span>';
+        document.getElementById('modal-full-page-link').href = `/stock/${ticker}`;
+
+        // Load all data in parallel
+        loadModalProfile(ticker);
+        loadModalQuote(ticker);
+        loadModalPriceChart(ticker, pairedTicker);
+        loadModalClusterInfo(ticker);
+        loadModalCorrelations(ticker);
+        loadModalPeers(ticker);
+        loadModalRatios(ticker);
+        loadModalNews(ticker);
+    }
+
+    function closeStockModal() {
+        document.getElementById('stock-modal').classList.add('hidden');
+        if (modalPriceChart) {
+            modalPriceChart.destroy();
+            modalPriceChart = null;
+        }
+    }
+
+    async function loadModalProfile(ticker) {
+        try {
+            const res = await fetch(`/api/fmp/profile/${ticker}`);
+            const data = await res.json();
+            if (data.companyName) {
+                document.getElementById('modal-company').textContent = data.companyName;
+                document.getElementById('modal-sector').textContent = data.sector || '-';
+                document.getElementById('modal-industry').textContent = data.industry || '-';
+                document.getElementById('modal-marketcap').textContent = data.mktCap ? formatNumber(data.mktCap) : '-';
+                document.getElementById('modal-exchange').textContent = data.exchangeShortName || data.exchange || '-';
+            }
+        } catch (e) {
+            console.error('Error loading profile:', e);
+        }
+    }
+
+    async function loadModalQuote(ticker) {
+        try {
+            const res = await fetch(`/api/fmp/quote/${ticker}`);
+            const data = await res.json();
+            if (data.price) {
+                document.getElementById('modal-price').textContent = '$' + data.price.toFixed(2);
+                const change = data.change || 0;
+                const changePct = data.changesPercentage || 0;
+                const isPositive = change >= 0;
+                const changeEl = document.getElementById('modal-change');
+                changeEl.textContent = `${isPositive ? '+' : ''}${change.toFixed(2)} (${isPositive ? '+' : ''}${changePct.toFixed(2)}%)`;
+                changeEl.className = `text-sm ${isPositive ? 'text-green-600' : 'text-red-600'}`;
+            }
+        } catch (e) {
+            console.error('Error loading quote:', e);
+        }
+    }
+
+    async function loadModalPriceChart(ticker, pairedTicker) {
+        try {
+            // Fetch data for primary ticker
+            const res = await fetch(`/api/fmp/historical/${ticker}?days=30`);
+            const data = await res.json();
+
+            let datasets = [];
+            let labels = [];
+
+            if (data.historical && data.historical.length > 0) {
+                const reversed = data.historical.reverse();
+                labels = reversed.map(d => d.date);
+                const startPrice = reversed[0].close;
+                const normalized = reversed.map(d => (d.close / startPrice) * 100);
+
+                datasets.push({
+                    label: ticker,
+                    data: normalized,
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    fill: false,
+                    tension: 0.1,
+                    pointRadius: 0
+                });
+            }
+
+            // If paired ticker provided, add it to chart
+            if (pairedTicker) {
+                try {
+                    const res2 = await fetch(`/api/fmp/historical/${pairedTicker}?days=30`);
+                    const data2 = await res2.json();
+                    if (data2.historical && data2.historical.length > 0) {
+                        const reversed2 = data2.historical.reverse();
+                        const startPrice2 = reversed2[0].close;
+                        const normalized2 = reversed2.map(d => (d.close / startPrice2) * 100);
+
+                        datasets.push({
+                            label: pairedTicker,
+                            data: normalized2,
+                            borderColor: 'rgba(34, 197, 94, 1)',
+                            backgroundColor: 'rgba(34, 197, 94, 0.1)',
+                            fill: false,
+                            tension: 0.1,
+                            pointRadius: 0
+                        });
+                    }
+                } catch (e) {
+                    console.error('Error loading paired ticker:', e);
+                }
+            }
+
+            const ctx = document.getElementById('modal-price-chart').getContext('2d');
+            if (modalPriceChart) modalPriceChart.destroy();
+
+            modalPriceChart = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: datasets.length > 1, position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => `${ctx.dataset.label}: ${(ctx.raw - 100).toFixed(1)}%`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { display: true, ticks: { maxTicksLimit: 6 } },
+                        y: { display: true, title: { display: true, text: 'Indexed (Start=100)' } }
+                    }
+                }
+            });
+        } catch (e) {
+            console.error('Error loading price chart:', e);
+        }
+    }
+
+    async function loadModalClusterInfo(ticker) {
+        try {
+            const res = await fetch(`/api/stock/${ticker}/cluster-history`);
+            const data = await res.json();
+            const container = document.getElementById('modal-cluster-info');
+
+            if (data.history && data.history.length > 0) {
+                const latest = data.history[0];
+                container.innerHTML = `
+                    <div class="flex justify-between items-center p-2 bg-blue-50 rounded mb-2">
+                        <span class="text-sm">Current Cluster</span>
+                        <span class="font-bold text-blue-600">${latest.cluster_id === -1 ? 'Noise' : 'Cluster ' + latest.cluster_id}</span>
+                    </div>
+                    <div class="text-xs text-gray-500">As of ${latest.date}</div>
+                `;
+            } else {
+                container.innerHTML = '<span class="text-gray-400">No cluster data</span>';
+            }
+        } catch (e) {
+            console.error('Error loading cluster info:', e);
+        }
+    }
+
+    async function loadModalCorrelations(ticker) {
+        try {
+            const res = await fetch(`/api/stock/${ticker}/correlations?limit=10`);
+            const data = await res.json();
+            const container = document.getElementById('modal-correlations');
+
+            if (data.correlations && data.correlations.length > 0) {
+                container.innerHTML = data.correlations.map(c => `
+                    <div class="flex justify-between items-center py-1 text-sm">
+                        <button onclick="openStockModal('${c.ticker}', '${ticker}')" class="text-blue-600 hover:underline">${c.ticker}</button>
+                        <span class="font-mono">${c.correlation.toFixed(4)}</span>
+                    </div>
+                `).join('');
+            } else {
+                container.innerHTML = '<span class="text-gray-400">No correlations</span>';
+            }
+        } catch (e) {
+            console.error('Error loading correlations:', e);
+        }
+    }
+
+    async function loadModalPeers(ticker) {
+        try {
+            const res = await fetch(`/api/fmp/peers/${ticker}`);
+            const data = await res.json();
+            const container = document.getElementById('modal-peers');
+
+            if (data.peersList && data.peersList.length > 0) {
+                container.innerHTML = data.peersList.slice(0, 8).map(peer => `
+                    <div class="py-1 text-sm">
+                        <button onclick="openStockModal('${peer}', '${ticker}')" class="text-blue-600 hover:underline">${peer}</button>
+                    </div>
+                `).join('');
+            } else {
+                container.innerHTML = '<span class="text-gray-400">No peer data</span>';
+            }
+        } catch (e) {
+            console.error('Error loading peers:', e);
+        }
+    }
+
+    async function loadModalRatios(ticker) {
+        try {
+            const res = await fetch(`/api/fmp/ratios/${ticker}`);
+            const data = await res.json();
+            const container = document.getElementById('modal-ratios');
+
+            const ratios = [
+                { label: 'P/E', value: data.peRatioTTM },
+                { label: 'P/B', value: data.priceToBookRatioTTM },
+                { label: 'ROE', value: data.returnOnEquityTTM, pct: true },
+                { label: 'ROA', value: data.returnOnAssetsTTM, pct: true },
+                { label: 'D/E', value: data.debtEquityRatioTTM },
+                { label: 'Current', value: data.currentRatioTTM },
+            ];
+
+            container.innerHTML = ratios.map(r => `
+                <div class="bg-gray-50 rounded p-2 text-center">
+                    <div class="text-xs text-gray-500">${r.label}</div>
+                    <div class="font-semibold">${r.value ? (r.pct ? (r.value * 100).toFixed(1) + '%' : r.value.toFixed(2)) : '-'}</div>
+                </div>
+            `).join('');
+        } catch (e) {
+            console.error('Error loading ratios:', e);
+        }
+    }
+
+    async function loadModalNews(ticker) {
+        try {
+            const res = await fetch(`/api/fmp/news/${ticker}?limit=3`);
+            const news = await res.json();
+            const container = document.getElementById('modal-news');
+
+            if (news && news.length > 0) {
+                container.innerHTML = news.map(n => `
+                    <div class="border-b pb-2 last:border-0">
+                        <a href="${n.url}" target="_blank" class="text-blue-600 hover:underline text-sm font-medium">${n.title}</a>
+                        <div class="text-xs text-gray-500">${n.site} - ${new Date(n.publishedDate).toLocaleDateString()}</div>
+                    </div>
+                `).join('');
+            } else {
+                container.innerHTML = '<span class="text-gray-400">No news</span>';
+            }
+        } catch (e) {
+            console.error('Error loading news:', e);
+        }
+    }
+
     // Close modal handlers
     document.getElementById('close-compare').addEventListener('click', () => {
         document.getElementById('compare-modal').classList.add('hidden');
     });
+
+    document.getElementById('close-stock-modal').addEventListener('click', closeStockModal);
 
     document.getElementById('compare-modal').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) {
@@ -604,10 +967,17 @@
         }
     });
 
+    document.getElementById('stock-modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) {
+            closeStockModal();
+        }
+    });
+
     // Close on escape key
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             document.getElementById('compare-modal').classList.add('hidden');
+            closeStockModal();
         }
     });
 </script>
